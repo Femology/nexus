@@ -1,0 +1,138 @@
+{
+  "name": "nexus-code",
+  "displayName": "Nexus-Code",
+  "description": "High-performance BYOK AI coding assistant with token-optimized semantic caching, memory graph, and prompt compression.",
+  "version": "1.0.0",
+  "publisher": "nexus-code",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "nexus-code-sidebar",
+          "title": "Nexus-Code",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "nexus-code-sidebar": [
+        {
+          "type": "webview",
+          "id": "nexus-code-chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "nexus-code.newChat",
+        "title": "Nexus-Code: New Chat"
+      },
+      {
+        "command": "nexus-code.clearHistory",
+        "title": "Nexus-Code: Clear History"
+      },
+      {
+        "command": "nexus-code.addApiKey",
+        "title": "Nexus-Code: Add API Key"
+      },
+      {
+        "command": "nexus-code.restartDaemon",
+        "title": "Nexus-Code: Restart Daemon"
+      }
+    ],
+    "configuration": {
+      "title": "Nexus-Code",
+      "properties": {
+        "nexuscode.apiKeyAliases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "alias": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              }
+            }
+          },
+          "default": [],
+          "description": "Registered API key aliases and their providers (informational; actual keys are in SecretStorage)."
+        },
+        "nexuscode.defaultModel": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "Default model alias selected when opening a new chat tab."
+        },
+        "nexuscode.streamingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable streaming (SSE) responses for real-time token display."
+        },
+        "nexuscode.terminalContextEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include the last 200 lines of terminal output in the context bundle."
+        },
+        "nexuscode.maxOpenTabsContext": {
+          "type": "integer",
+          "default": 10,
+          "minimum": 0,
+          "maximum": 30,
+          "description": "Maximum number of open tabs to include in context (ordered by most recently accessed)."
+        },
+        "nexuscode.heavyContextThreshold": {
+          "type": "integer",
+          "default": 8000,
+          "minimum": 1000,
+          "description": "Estimated token count above which aggressive compression is triggered."
+        },
+        "nexuscode.daemonPort": {
+          "type": "integer",
+          "default": 8000,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Port number for the local optimization daemon."
+        },
+        "nexuscode.daemonMaxRestarts": {
+          "type": "integer",
+          "default": 5,
+          "minimum": 0,
+          "maximum": 20,
+          "description": "Maximum automatic daemon restart attempts before showing a persistent error."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/highlight.js": "^9.12.4",
+    "@types/marked": "^5.0.2",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "highlight.js": "^11.11.1",
+    "marked": "^18.0.5"
+  }
+}

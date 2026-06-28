@@ -1,0 +1,28 @@
+{
+  "models": {
+    "gpt-4o": {
+      "input_per_million_tokens": 2.50,
+      "output_per_million_tokens": 10.00
+    },
+    "gpt-4o-mini": {
+      "input_per_million_tokens": 0.15,
+      "output_per_million_tokens": 0.60
+    },
+    "claude-sonnet-4-5": {
+      "input_per_million_tokens": 3.00,
+      "output_per_million_tokens": 15.00
+    },
+    "claude-haiku-3-5": {
+      "input_per_million_tokens": 0.80,
+      "output_per_million_tokens": 4.00
+    },
+    "gemini-2.0-flash": {
+      "input_per_million_tokens": 0.10,
+      "output_per_million_tokens": 0.40
+    },
+    "deepseek-chat": {
+      "input_per_million_tokens": 0.14,
+      "output_per_million_tokens": 0.28
+    }
+  }
+}

@@ -1,0 +1,73 @@
+# ===========================================================================
+# Nexus-Code Daemon Configuration
+# ===========================================================================
+# This is the single source of truth for all daemon-level settings.
+# VS Code extension settings live separately in the extension's package.json.
+# ===========================================================================
+
+cache:
+  l1_similarity_threshold: 0.95
+  l2_similarity_threshold: 0.88
+  l1_max_entries_per_session: 500
+  l2_max_entries_per_workspace: 5000
+  l2_ttl_days: 7
+
+memory:
+  max_nodes_per_partition: 500
+  retrieval_seed_k: 15
+  retrieval_top_n: 8
+  graph_traversal_depth: 2
+
+compression:
+  system_prompt_rate: 0.15
+  memory_rate: 0.60
+  code_context_rate: 0.40
+  code_context_heavy_rate: 0.60
+  meta_context_rate: 0.50
+  summary_rate: 0.35
+
+context_optimizer:
+  tab_relevance_min: 0.30
+  active_file_window_lines_before: 100
+  active_file_window_lines_after: 150
+
+tool_loop:
+  max_iterations: 10
+
+session:
+  ttl_hours: 24
+  eviction_check_interval_minutes: 60
+  sqlite_flush_interval_seconds: 60
+
+litellm:
+  retry_max_attempts: 3
+  retry_initial_delay_seconds: 1.0
+  fallback_chain:
+    - "gpt-4o-mini"
+    - "claude-haiku-3-5"
+
+models:
+  - alias: "gpt-4o"
+    provider: "openai"
+    model_id: "gpt-4o"
+    context_window: 128000
+  - alias: "gpt-4o-mini"
+    provider: "openai"
+    model_id: "gpt-4o-mini"
+    context_window: 128000
+  - alias: "claude-sonnet-4-5"
+    provider: "anthropic"
+    model_id: "claude-sonnet-4-5-20250514"
+    context_window: 200000
+  - alias: "claude-haiku-3-5"
+    provider: "anthropic"
+    model_id: "claude-3-5-haiku-20241022"
+    context_window: 200000
+  - alias: "gemini-2.0-flash"
+    provider: "google"
+    model_id: "gemini/gemini-2.0-flash"
+    context_window: 1048576
+  - alias: "deepseek-chat"
+    provider: "deepseek"
+    model_id: "deepseek/deepseek-chat"
+    context_window: 64000

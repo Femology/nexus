@@ -1,0 +1,124 @@
+# ===========================================================================
+# Nexus-Code Tool Definitions (Single Source of Truth)
+# ===========================================================================
+# Served to the TypeScript extension via GET /v1/tools on startup.
+# Used by the Prompt Assembler to format tool definitions for the LLM.
+# Defined here ONCE. Never duplicated.
+# ===========================================================================
+
+tools:
+  - name: read_file
+    description: >
+      Read the full contents of a file at the given path in the user's
+      workspace. Returns the file content as a UTF-8 string.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Absolute path to the file to read.
+      required:
+        - path
+
+  - name: write_file
+    description: >
+      Overwrite the contents of an existing file at the given path.
+      The file must already exist. Returns a success or error indicator.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Absolute path to the file to write.
+        content:
+          type: string
+          description: The new content to write to the file.
+      required:
+        - path
+        - content
+
+  - name: create_file
+    description: >
+      Create a new file at the given path with the provided initial content.
+      Parent directories will be created if they do not exist. Returns the
+      created file's path.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Absolute path for the new file.
+        content:
+          type: string
+          description: Initial content for the new file.
+      required:
+        - path
+        - content
+
+  - name: run_terminal
+    description: >
+      Execute a shell command in the user's integrated terminal. The command
+      runs in a visible terminal so the user can observe its execution.
+      Returns the terminal output captured within the timeout window.
+    parameters:
+      type: object
+      properties:
+        command:
+          type: string
+          description: The shell command to execute.
+        timeout_ms:
+          type: integer
+          description: >
+            Maximum time in milliseconds to wait for command completion.
+            Defaults to 30000 (30 seconds).
+          default: 30000
+      required:
+        - command
+
+  - name: list_directory
+    description: >
+      List the contents of a directory. Returns file and subdirectory names
+      with their types (file or directory).
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Absolute path to the directory to list.
+      required:
+        - path
+
+  - name: get_diagnostics
+    description: >
+      Retrieve all current diagnostics (errors, warnings, information, hints)
+      for a specific file from VS Code's language services.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Absolute path to the file to inspect.
+      required:
+        - path
+
+  - name: show_diff
+    description: >
+      Open a side-by-side diff view in VS Code comparing original and
+      modified content for a file. This is display-only and does not modify
+      any files.
+    parameters:
+      type: object
+      properties:
+        original_content:
+          type: string
+          description: The original file content.
+        modified_content:
+          type: string
+          description: The proposed modified content.
+        file_path:
+          type: string
+          description: Path of the file being diffed (used in the diff title).
+      required:
+        - original_content
+        - modified_content
+        - file_path
