@@ -12,5 +12,6 @@
 
 # Packaging & Build
 *.vsix
+nexus-code/extension/daemon/
 dist/
 build/

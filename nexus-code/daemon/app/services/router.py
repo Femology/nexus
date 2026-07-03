@@ -2,6 +2,9 @@ import asyncio
 import json
 import logging
 import httpx
+import os
+import aiosqlite
+from datetime import datetime
 from typing import Dict, List, Optional, Any, AsyncGenerator, Union
 from pydantic import BaseModel
 
@@ -11,6 +14,7 @@ litellm.telemetry = False
 litellm.drop_params = True
 
 from ..models.context import CompressedPrompt
+from .intent_router import IntentTier
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,14 @@ class LLMRouter:
         self.max_retries = getattr(config.litellm, 'retry_max_attempts', 3) if config and hasattr(config, 'litellm') else 3
         self.fallback_chain = getattr(config.litellm, 'fallback_chain', []) if config and hasattr(config, 'litellm') else []
         
+        self.ledger_db_path = os.path.expanduser("~/.nexus-code/ledger.db")
+        
+        self.tier_map = {
+            "cheap": getattr(config.router, 'cheap_model', 'gemini-1.5-flash') if config and hasattr(config, 'router') else 'gemini-1.5-flash',
+            "mid": getattr(config.router, 'mid_model', 'gemini-1.5-pro') if config and hasattr(config, 'router') else 'gemini-1.5-pro',
+            "high": getattr(config.router, 'high_model', 'gemini-1.5-pro') if config and hasattr(config, 'router') else 'gemini-1.5-pro',
+        }
+        
         # Load from config
         if config and hasattr(config, 'models'):
             for m in config.models:
@@ -68,8 +80,8 @@ class LLMRouter:
                         "pricing": {"input_cost_per_token": 0, "output_cost_per_token": 0}
                     }
                 logger.info(f"Discovered {len(data.get('models', []))} Ollama models.")
-        except Exception as e:
-            logger.info("Ollama not running or reachable.")
+        except Exception:
+            logger.info("Ollama not reachable.")
 
     def get_context_window(self, model_alias: str) -> int:
         return self.models_map.get(model_alias, {}).get("context_window", 8192)
@@ -80,6 +92,45 @@ class LLMRouter:
         prompt_cost = usage.get("prompt_tokens", 0) * pricing.get("input_cost_per_token", 0.0)
         comp_cost = usage.get("completion_tokens", 0) * pricing.get("output_cost_per_token", 0.0)
         return prompt_cost + comp_cost
+
+    async def _init_ledger(self):
+        os.makedirs(os.path.dirname(self.ledger_db_path), exist_ok=True)
+        async with aiosqlite.connect(self.ledger_db_path) as db:
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS cost_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT,
+                    intent_tier TEXT,
+                    model_used TEXT,
+                    tokens_in INTEGER,
+                    tokens_out INTEGER,
+                    cost_usd REAL
+                )
+            ''')
+            await db.commit()
+
+    async def _log_usage(self, intent_tier_str: str, model_used: str, usage: LLMUsage):
+        cost = self.calculate_cost(model_used, {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens})
+        async with aiosqlite.connect(self.ledger_db_path) as db:
+            await db.execute('''
+                INSERT INTO cost_ledger (timestamp, intent_tier, model_used, tokens_in, tokens_out, cost_usd)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (datetime.utcnow().isoformat(), intent_tier_str, model_used, usage.prompt_tokens, usage.completion_tokens, cost))
+            await db.commit()
+
+    def select_tier(self, intent_tier: IntentTier, context_tokens: int, override_high: bool) -> str:
+        if override_high:
+            return "high"
+        
+        if intent_tier == IntentTier.LOCAL_EDIT:
+            return "cheap"
+        elif intent_tier == IntentTier.EXPLAIN:
+            return "cheap" if context_tokens < 2000 else "mid"
+        elif intent_tier == IntentTier.DEBUG_LOOP:
+            return "mid"
+        elif intent_tier == IntentTier.REPO_QUERY:
+            return "high" if context_tokens > 10000 else "mid"
+        return "mid"
 
     async def _execute_request(self, messages, resolved_model, api_key, stream, tools, attempt=0) -> Any:
         try:
@@ -93,19 +144,14 @@ class LLMRouter:
             return resp
         except Exception as e:
             err_str = str(e).lower()
-            # 401 Unauthorized
             if "401" in err_str or "authentication" in err_str:
                 raise ValueError(f"AUTH_FAILURE: {e}")
-            # 403 Forbidden
             if "403" in err_str:
                 raise ValueError(f"FORBIDDEN: {e}")
-            # 404 Not Found
             if "404" in err_str or "not found" in err_str:
                 raise ValueError(f"MODEL_NOT_FOUND: {e}")
             
             is_timeout = "timeout" in err_str or "timed out" in err_str
-            is_rate_limit = "429" in err_str
-            is_server_error = "500" in err_str or "502" in err_str or "503" in err_str
             
             if attempt < self.max_retries:
                 delay = self.retry_delay * (2 ** attempt)
@@ -120,22 +166,29 @@ class LLMRouter:
     async def dispatch(
         self,
         compressed_prompt: CompressedPrompt,
-        model_alias: str,
         api_key: str,
         stream: bool,
-        tools: Optional[List[Dict[str, Any]]] = None
+        tools: Optional[List[Dict[str, Any]]] = None,
+        intent_tier: Optional[IntentTier] = None,
+        override_high: bool = False
     ) -> Union[LLMResult, AsyncGenerator[StreamChunk, None]]:
         
-        current_alias = model_alias
+        await self._init_ledger()
+        
+        context_tokens = getattr(compressed_prompt, 'post_compression_tokens', 0)
+        tier_name = "mid"
+        intent_tier_str = "UNKNOWN"
+        
+        if intent_tier is not None:
+            tier_name = self.select_tier(intent_tier, context_tokens, override_high)
+            intent_tier_str = intent_tier.name
+            
+        model_alias = self.tier_map.get(tier_name, 'gemini-1.5-pro')
         chain = [model_alias] + self.fallback_chain
         
         for alias in chain:
             model_info = self.models_map.get(alias)
-            if not model_info:
-                # Fallback directly to the alias if not in config
-                resolved_model = alias
-            else:
-                resolved_model = model_info["model_id"]
+            resolved_model = model_info["model_id"] if model_info else alias
             
             try:
                 if not stream:
@@ -154,15 +207,17 @@ class LLMRouter:
                     if hasattr(msg, 'tool_calls') and msg.tool_calls:
                         tool_calls = [tc.model_dump() for tc in msg.tool_calls]
                         
-                    return LLMResult(
+                    result = LLMResult(
                         text=msg.content,
                         tool_calls=tool_calls,
                         finish_reason=choice.finish_reason,
                         usage=usage,
                         model_used=resolved_model
                     )
+                    await self._log_usage(intent_tier_str, resolved_model, usage)
+                    return result
                 else:
-                    return self._stream_generator(compressed_prompt.messages, resolved_model, api_key, tools)
+                    return self._stream_generator(compressed_prompt.messages, resolved_model, api_key, tools, intent_tier_str)
                     
             except Exception as e:
                 logger.error(f"Model {alias} failed: {e}")
@@ -173,7 +228,7 @@ class LLMRouter:
                 
         raise RuntimeError("All models in fallback chain failed.")
 
-    async def _stream_generator(self, messages, resolved_model, api_key, tools) -> AsyncGenerator[StreamChunk, None]:
+    async def _stream_generator(self, messages, resolved_model, api_key, tools, intent_tier_str) -> AsyncGenerator[StreamChunk, None]:
         response = await self._execute_request(messages, resolved_model, api_key, stream=True, tools=tools)
         
         full_text = ""
@@ -186,22 +241,22 @@ class LLMRouter:
                 req_id = chunk.id
             if chunk.choices and len(chunk.choices) > 0:
                 delta = chunk.choices[0].delta
-                content = delta.content or ""
+                content = getattr(delta, 'content', None) or ""
                 if content:
                     full_text += content
                     completion_tokens += 1
                     yield StreamChunk(delta=content, request_id=req_id, is_final=False)
 
-        # LiteLLM streaming doesn't always yield usage. We approximate prompt tokens based on input text if needed
-        # Or if available in the last chunk
-        
         usage = LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=prompt_tokens+completion_tokens)
         
         llm_result = LLMResult(
             text=full_text,
-            tool_calls=None, # Streaming tool calls omitted for simplicity in this MVP
+            tool_calls=None,
             finish_reason="stop",
             usage=usage,
             model_used=resolved_model
         )
+        
+        await self._log_usage(intent_tier_str, resolved_model, usage)
         yield StreamChunk(delta="", request_id=req_id, is_final=True, llm_result=llm_result)
+

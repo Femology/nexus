@@ -119,8 +119,13 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "node esbuild.mjs",
-    "watch": "node esbuild.mjs --watch",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.mjs --watch",
+    "watch:tsc": "tsc -noEmit -watch --project tsconfig.json",
+    "package": "vsce package",
+    "prepackage": "rm -rf ./daemon && cp -r ../daemon ./daemon && rm -rf ./daemon/venv ./daemon/__pycache__ ./daemon/.pytest_cache",
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
@@ -128,6 +133,7 @@
     "@types/marked": "^5.0.2",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.21.0",
     "typescript": "^5.4.0"
   },

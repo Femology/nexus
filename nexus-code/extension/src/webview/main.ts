@@ -16,20 +16,10 @@ const modelSelector = document.getElementById('model-selector') as HTMLSelectEle
 const settingsPanel = document.getElementById('settings-panel') as HTMLDivElement;
 const toggleSettingsBtn = document.getElementById('toggle-settings-btn') as HTMLButtonElement;
 const closeSettingsBtn = document.getElementById('close-settings-btn') as HTMLButtonElement;
-const apiKeyList = document.getElementById('api-key-list') as HTMLDivElement;
-const newKeyAlias = document.getElementById('new-key-alias') as HTMLInputElement;
-const newKeyValue = document.getElementById('new-key-value') as HTMLInputElement;
-const newKeyProvider = document.getElementById('new-key-provider') as HTMLSelectElement;
-const saveKeyBtn = document.getElementById('save-key-btn') as HTMLButtonElement;
-const settingStreaming = document.getElementById('setting-streaming') as HTMLInputElement;
-const settingTerminal = document.getElementById('setting-terminal') as HTMLInputElement;
-const settingTabs = document.getElementById('setting-tabs') as HTMLInputElement;
-const saveSettingsBtn = document.getElementById('save-settings-btn') as HTMLButtonElement;
 const newChatBtn = document.getElementById('new-chat-btn') as HTMLButtonElement;
 
 // Status Bar Elements
 const cacheIndicator = document.getElementById('cache-indicator') as HTMLSpanElement;
-const savingsIndicator = document.getElementById('savings-indicator') as HTMLSpanElement;
 const costIndicator = document.getElementById('cost-indicator') as HTMLSpanElement;
 
 // State
@@ -58,10 +48,9 @@ closeSettingsBtn.addEventListener('click', () => {
 });
 
 messageInput.addEventListener('input', () => {
-  // Auto-resize textarea
   messageInput.style.height = 'auto';
   messageInput.style.height = Math.min(messageInput.scrollHeight, 200) + 'px';
-  charCount.textContent = `${messageInput.value.length} chars`;
+  charCount.textContent = `${messageInput.value.length}`;
 });
 
 messageInput.addEventListener('keydown', (e) => {
@@ -80,23 +69,6 @@ newChatBtn.addEventListener('click', () => {
   clearStatus();
 });
 
-saveKeyBtn.addEventListener('click', () => {
-  const alias = newKeyAlias.value.trim();
-  const key = newKeyValue.value.trim();
-  const provider = newKeyProvider.value;
-  if (alias && key) {
-    vscode.postMessage({ type: 'saveApiKey', alias, key, provider });
-    newKeyAlias.value = '';
-    newKeyValue.value = '';
-  }
-});
-
-saveSettingsBtn.addEventListener('click', () => {
-  vscode.postMessage({ type: 'updateSetting', key: 'nexuscode.streamingEnabled', value: settingStreaming.checked });
-  vscode.postMessage({ type: 'updateSetting', key: 'nexuscode.terminalContextEnabled', value: settingTerminal.checked });
-  vscode.postMessage({ type: 'updateSetting', key: 'nexuscode.maxOpenTabsContext', value: parseInt(settingTabs.value, 10) });
-});
-
 messagesContainer.addEventListener('scroll', () => {
   const isAtBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop <= messagesContainer.clientHeight + 10;
   userScrolledUp = !isAtBottom;
@@ -105,31 +77,23 @@ messagesContainer.addEventListener('scroll', () => {
 function sendMessage() {
   const text = messageInput.value.trim();
   if (!text) return;
-  if (sendBtn.disabled) return;
 
-  const stream = settingStreaming.checked;
   const modelAlias = modelSelector.value;
-
-  vscode.postMessage({ type: 'sendMessage', text, modelAlias, stream });
+  vscode.postMessage({ type: 'sendMessage', text, modelAlias, stream: true });
 
   appendMessage('user', text);
   messageInput.value = '';
   messageInput.style.height = 'auto';
-  charCount.textContent = '0 chars';
-  sendBtn.disabled = true;
+  charCount.textContent = '0';
   userScrolledUp = false;
 
-  // Add a placeholder for assistant response
   const id = 'msg-' + Date.now();
   currentStreamingMessageId = id;
   streamingBuffer = '';
   
   const html = `
-    <div id="${id}" class="message">
-      <div class="message-header">
-        <div class="message-role">🤖 Nexus-Code</div>
-        <div class="status-badge pulsing-dot">thinking...</div>
-      </div>
+    <div id="${id}" class="message assistant">
+      <div class="message-role">🤖 Nexus-Code <span class="status-badge pulsing-dot" style="font-weight:normal;opacity:0.7;margin-left:8px;">thinking...</span></div>
       <div class="message-content markdown-body" id="${id}-content"></div>
     </div>
   `;
@@ -142,10 +106,8 @@ function appendMessage(role: 'user' | 'assistant', text: string) {
   const roleName = role === 'user' ? '👤 You' : '🤖 Nexus-Code';
   
   const html = `
-    <div id="${id}" class="message">
-      <div class="message-header">
-        <div class="message-role">${roleName}</div>
-      </div>
+    <div id="${id}" class="message ${role}">
+      <div class="message-role">${roleName}</div>
       <div class="message-content markdown-body">
         ${processMarkdown(marked.parse(text) as string)}
       </div>
@@ -162,25 +124,31 @@ function scrollToBottom() {
 }
 
 function processMarkdown(html: string): string {
-    // Inject copy buttons
     const div = document.createElement('div');
     div.innerHTML = html;
     const pres = div.querySelectorAll('pre');
     pres.forEach(pre => {
-        const btn = document.createElement('button');
-        btn.className = 'copy-btn';
-        btn.textContent = 'Copy';
-        btn.onclick = () => {
-            const code = pre.querySelector('code')?.innerText || '';
-            navigator.clipboard.writeText(code);
-            btn.textContent = 'Copied!';
-            setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
-        };
-        // Can't attach event listener easily via string, so we'll do it post-render instead
-        // Actually, inline onclick is easiest for webviews without a framework
-        const codeText = encodeURIComponent(pre.querySelector('code')?.innerText || '');
-        const btnHtml = `<button class="copy-btn" onclick="navigator.clipboard.writeText(decodeURIComponent('${codeText}')).then(() => { this.textContent = 'Copied!'; setTimeout(() => { this.textContent = 'Copy'; }, 2000); })">Copy</button>`;
-        pre.insertAdjacentHTML('afterbegin', btnHtml);
+        const codeElement = pre.querySelector('code');
+        const codeText = codeElement?.innerText || '';
+        const lang = codeElement?.className.replace('hljs language-', '') || 'text';
+        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+        
+        const safeCodeText = encodeURIComponent(codeText);
+        
+        wrapper.innerHTML = `
+            <div class="code-header">
+                <span>${lang}</span>
+                <div class="code-actions">
+                    <button class="code-action-btn" onclick="navigator.clipboard.writeText(decodeURIComponent('${safeCodeText}')).then(() => { this.innerHTML = '✓ Copied'; setTimeout(() => { this.innerHTML = '📋 Copy'; }, 2000); })">📋 Copy</button>
+                    <button class="code-action-btn apply-btn" onclick="vscode.postMessage({ type: 'sendMessage', text: 'Apply this code: \\n\`\`\`\\n' + decodeURIComponent('${safeCodeText}') + '\\n\`\`\`', modelAlias: document.getElementById('model-selector').value, stream: true })">▶ Apply to Editor</button>
+                </div>
+            </div>
+        `;
+        
+        pre.parentNode?.insertBefore(wrapper, pre);
+        wrapper.appendChild(pre);
     });
     return div.innerHTML;
 }
@@ -197,9 +165,11 @@ window.addEventListener('keydown', (e) => {
 
 function clearStatus() {
   cacheIndicator.textContent = '';
-  savingsIndicator.textContent = '';
   costIndicator.textContent = '';
 }
+
+// Expose vscode to global scope for inline onclicks
+(window as any).vscode = vscode;
 
 // Handle incoming messages
 window.addEventListener('message', (event) => {
@@ -207,24 +177,10 @@ window.addEventListener('message', (event) => {
 
   switch (message.type) {
     case 'initialize':
-      // Populate models
       modelSelector.innerHTML = message.models.map((m: string) => `<option value="${m}">${m}</option>`).join('');
       if (message.selectedModel) {
         modelSelector.value = message.selectedModel;
       }
-      
-      // Populate settings
-      settingStreaming.checked = message.settings.streamingEnabled;
-      settingTerminal.checked = message.settings.terminalContextEnabled;
-      settingTabs.value = message.settings.maxOpenTabsContext.toString();
-
-      // Populate keys
-      apiKeyList.innerHTML = message.keyAliases.map((a: string) => `
-        <div class="api-key-item">
-          <span>${a}</span>
-          <button class="btn btn-secondary" onclick="deleteKey('${a}')">Delete</button>
-        </div>
-      `).join('');
       break;
 
     case 'streamDelta':
@@ -254,20 +210,14 @@ window.addEventListener('message', (event) => {
           scrollToBottom();
         }
         const badgeEl = document.querySelector(`#${currentStreamingMessageId} .status-badge`);
-        if (badgeEl) {
-          badgeEl.className = 'status-badge';
-          badgeEl.textContent = new Date().toLocaleTimeString();
-        }
+        if (badgeEl) badgeEl.remove();
       } else if (message.response.response_text) {
-        // Fallback if not streaming
         appendMessage('assistant', message.response.response_text);
       }
       
       currentStreamingMessageId = null;
       streamingBuffer = '';
-      sendBtn.disabled = false;
 
-      // Update status bar
       const r = message.response;
       if (r) {
         if (r.cache_hit) {
@@ -275,7 +225,6 @@ window.addEventListener('message', (event) => {
         } else {
           cacheIndicator.textContent = '';
         }
-        savingsIndicator.textContent = `Saved ${r.pre_compression_tokens - r.post_compression_tokens} tokens (${(r.compression_ratio * 100).toFixed(1)}%)`;
         costIndicator.textContent = `$${(r.cost_estimate_usd || 0).toFixed(4)}`;
       }
       break;
@@ -284,15 +233,11 @@ window.addEventListener('message', (event) => {
       let toolContainerId = `tools-${currentStreamingMessageId}`;
       let containerEl = document.getElementById(toolContainerId);
       
-      // If no message id, just append a new assistant message box for tools
       if (!currentStreamingMessageId) {
          currentStreamingMessageId = 'msg-' + Date.now();
          const html = `
-          <div id="${currentStreamingMessageId}" class="message">
-            <div class="message-header">
-              <div class="message-role">🤖 Nexus-Code</div>
-              <div class="status-badge">executing tools...</div>
-            </div>
+          <div id="${currentStreamingMessageId}" class="message assistant">
+            <div class="message-role">🤖 Nexus-Code <span class="status-badge">executing tools...</span></div>
             <div class="message-content" id="${currentStreamingMessageId}-content"></div>
           </div>
         `;
@@ -301,7 +246,6 @@ window.addEventListener('message', (event) => {
       }
 
       if (!containerEl) {
-         // Create the tools container
          const parent = document.getElementById(`${currentStreamingMessageId}-content`);
          if (parent) {
             parent.insertAdjacentHTML('beforeend', `<div id="${toolContainerId}" class="tools-container" style="margin-top: 8px; border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px;"></div>`);
@@ -340,7 +284,6 @@ window.addEventListener('message', (event) => {
       } else {
         appendMessage('assistant', `**Error:** ${message.message}`);
       }
-      sendBtn.disabled = false;
       currentStreamingMessageId = null;
       streamingBuffer = '';
       break;
@@ -355,11 +298,6 @@ window.addEventListener('message', (event) => {
        break;
   }
 });
-
-// Expose deleteKey to global scope for inline onclick handler
-(window as any).deleteKey = function(alias: string) {
-  vscode.postMessage({ type: 'deleteApiKey', alias });
-};
 
 // Signal ready
 vscode.postMessage({ type: 'webviewReady' });

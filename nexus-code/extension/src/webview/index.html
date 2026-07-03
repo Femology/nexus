@@ -7,13 +7,17 @@
     <title>Nexus-Code Chat</title>
     <style>
         :root {
-            --padding: 12px;
-            --border-color: var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+            --padding: 16px;
+            --border-color: var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+            --bubble-user: var(--vscode-editor-background);
+            --bubble-assistant: var(--vscode-editorWidget-background);
+            --primary: var(--vscode-button-background);
+            --primary-hover: var(--vscode-button-hoverBackground);
         }
 
         body {
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 13px;
             color: var(--vscode-editor-foreground);
             background-color: var(--vscode-editor-background);
             margin: 0;
@@ -24,109 +28,66 @@
             overflow: hidden;
         }
 
-        /* HEADER / MODEL SELECTOR */
+        /* HEADER */
         .header {
             display: flex;
-            justify-content: space-between;
+            justify-content: center;
             align-items: center;
-            padding: 8px var(--padding);
+            padding: 10px;
             border-bottom: 1px solid var(--border-color);
             background-color: var(--vscode-editor-background);
-            flex-shrink: 0;
+            position: relative;
         }
 
         .model-selector {
             background-color: var(--vscode-dropdown-background);
             color: var(--vscode-dropdown-foreground);
             border: 1px solid var(--vscode-dropdown-border);
-            padding: 4px;
-            border-radius: 2px;
-            font-family: inherit;
-            font-size: inherit;
+            padding: 4px 24px 4px 12px;
+            border-radius: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            outline: none;
+            appearance: none;
         }
 
         .settings-btn {
+            position: absolute;
+            right: 12px;
             background: none;
             border: none;
             color: var(--vscode-icon-foreground);
             cursor: pointer;
             font-size: 16px;
             padding: 4px;
+            opacity: 0.7;
         }
-
-        .settings-btn:hover {
-            color: var(--vscode-button-foreground);
-        }
+        .settings-btn:hover { opacity: 1; }
 
         /* SETTINGS PANEL */
         .settings-panel {
             display: none;
             position: absolute;
-            top: 40px;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: 45px; left: 0; right: 0; bottom: 0;
             background-color: var(--vscode-editor-background);
             z-index: 100;
             padding: var(--padding);
             overflow-y: auto;
         }
-
-        .settings-panel.open {
-            display: block;
-        }
-
-        .settings-group {
-            margin-bottom: 16px;
-        }
-
-        .settings-group label {
-            display: block;
-            margin-bottom: 4px;
-            font-weight: bold;
-        }
-
-        .settings-input {
-            width: 100%;
-            box-sizing: border-box;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            padding: 4px;
-            margin-bottom: 8px;
-        }
-
+        .settings-panel.open { display: block; }
+        
         .btn {
-            background-color: var(--vscode-button-background);
+            background-color: var(--primary);
             color: var(--vscode-button-foreground);
             border: none;
             padding: 6px 12px;
             cursor: pointer;
-            border-radius: 2px;
+            border-radius: 4px;
+            font-weight: 500;
         }
+        .btn:hover { background-color: var(--primary-hover); }
 
-        .btn:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-
-        .btn-secondary {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-
-        .btn-secondary:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
-        }
-
-        .api-key-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 4px 0;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        /* MESSAGE THREAD */
+        /* MESSAGES */
         .messages-container {
             flex-grow: 1;
             overflow-y: auto;
@@ -139,214 +100,210 @@
         .message {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 6px;
+            max-width: 95%;
         }
 
-        .message-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-weight: 600;
-            font-size: 0.9em;
-            color: var(--vscode-descriptionForeground);
-        }
+        .message.user { align-self: flex-end; }
+        .message.assistant { align-self: flex-start; }
 
         .message-role {
-            display: flex;
-            align-items: center;
-            gap: 6px;
+            font-weight: 600;
+            font-size: 0.85em;
+            color: var(--vscode-descriptionForeground);
+            margin-bottom: 2px;
         }
 
         .message-content {
+            padding: 10px 14px;
+            border-radius: 8px;
             line-height: 1.5;
             word-wrap: break-word;
         }
 
-        .message-content p {
-            margin-top: 0;
-            margin-bottom: 8px;
+        .message.user .message-content {
+            background-color: var(--vscode-textBlockQuote-background, rgba(128,128,128,0.1));
+            border: 1px solid var(--border-color);
+            border-bottom-right-radius: 2px;
+        }
+
+        .message.assistant .message-content {
+            background-color: transparent;
+        }
+
+        .message-content p { margin: 0 0 10px 0; }
+        .message-content p:last-child { margin: 0; }
+
+        /* CODE BLOCKS */
+        .code-block-wrapper {
+            margin: 10px 0;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            background-color: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2));
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--vscode-editorGroupHeader-tabsBackground);
+            padding: 4px 8px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .code-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .code-action-btn {
+            background: none;
+            border: none;
+            color: var(--vscode-icon-foreground);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            opacity: 0.7;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .code-action-btn:hover {
+            opacity: 1;
+            background-color: var(--vscode-toolbar-hoverBackground);
         }
 
         .message-content pre {
-            background-color: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.1));
-            padding: 8px;
-            border-radius: 4px;
+            margin: 0;
+            padding: 12px;
             overflow-x: auto;
-            position: relative;
         }
-
         .message-content code {
             font-family: var(--vscode-editor-font-family);
-            font-size: 0.9em;
-        }
-
-        .copy-btn {
-            position: absolute;
-            top: 4px;
-            right: 4px;
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            border: none;
-            border-radius: 2px;
-            cursor: pointer;
-            font-size: 10px;
-            padding: 2px 6px;
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-
-        pre:hover .copy-btn {
-            opacity: 1;
-        }
-
-        .status-badge {
-            font-size: 0.8em;
-            padding: 2px 6px;
-            border-radius: 10px;
-            background-color: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-        }
-
-        .status-badge.error {
-            background-color: var(--vscode-errorForeground);
-            color: var(--vscode-editor-background);
-        }
-
-        /* STATUS BAR */
-        .status-bar {
-            font-size: 0.8em;
-            padding: 4px var(--padding);
-            border-top: 1px solid var(--border-color);
-            color: var(--vscode-descriptionForeground);
-            display: flex;
-            justify-content: space-between;
-            flex-shrink: 0;
+            font-size: 12px;
         }
 
         /* COMPOSER */
-        .composer-container {
+        .composer-wrapper {
             padding: var(--padding);
-            border-top: 1px solid var(--border-color);
             background-color: var(--vscode-editor-background);
             flex-shrink: 0;
+        }
+
+        .composer-container {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background-color: var(--vscode-input-background);
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            padding: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         }
 
         .composer-textarea {
             width: 100%;
             box-sizing: border-box;
-            background-color: var(--vscode-input-background);
+            background: transparent;
             color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            padding: 8px;
+            border: none;
             resize: none;
             font-family: inherit;
-            font-size: inherit;
+            font-size: 13px;
             min-height: 40px;
             max-height: 200px;
-            overflow-y: auto;
-            border-radius: 2px;
+            outline: none;
         }
 
-        .composer-textarea:focus {
-            outline: 1px solid var(--vscode-focusBorder);
-            outline-offset: -1px;
-        }
-
-        .composer-actions {
+        .composer-toolbar {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-top: 8px;
         }
 
-        .char-count {
-            font-size: 0.8em;
+        .context-btn {
+            background: none;
+            border: none;
+            color: var(--vscode-textLink-foreground);
+            cursor: pointer;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .send-btn-icon {
+            background: var(--primary);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 4px;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .send-btn-icon:hover { background: var(--primary-hover); }
+
+        .status-bar {
+            font-size: 10px;
+            padding: 4px 16px;
             color: var(--vscode-descriptionForeground);
+            display: flex;
+            justify-content: space-between;
+            border-top: 1px solid var(--border-color);
         }
-
+        
         /* Loader */
-        .pulsing-dot {
-            animation: pulse 1s infinite alternate;
-        }
-        @keyframes pulse {
-            from { opacity: 0.4; }
-            to { opacity: 1; }
-        }
+        .pulsing-dot { animation: pulse 1s infinite alternate; }
+        @keyframes pulse { from { opacity: 0.4; } to { opacity: 1; } }
     </style>
-    <!-- We will inject highlight.js styles via the extension if needed or use VS Code's native theme colors for code -->
 </head>
 <body>
     <div class="header">
-        <select id="model-selector" class="model-selector">
-            <option value="gpt-4o">gpt-4o</option>
-        </select>
+        <select id="model-selector" class="model-selector"></select>
         <button id="toggle-settings-btn" class="settings-btn" title="Settings">⚙️</button>
     </div>
 
     <!-- SETTINGS PANEL -->
     <div id="settings-panel" class="settings-panel">
-        <h3>Settings</h3>
-        <button id="close-settings-btn" class="btn btn-secondary" style="margin-bottom: 16px;">Close</button>
-        
-        <div class="settings-group">
-            <label>API Keys</label>
-            <div id="api-key-list"></div>
-            <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;">
-                <input type="text" id="new-key-alias" class="settings-input" placeholder="Alias (e.g. openai-personal)">
-                <input type="password" id="new-key-value" class="settings-input" placeholder="API Key">
-                <select id="new-key-provider" class="settings-input">
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="google">Google</option>
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="ollama">Ollama</option>
-                </select>
-                <button id="save-key-btn" class="btn">Save Key</button>
-            </div>
-        </div>
-
-        <div class="settings-group">
-            <label><input type="checkbox" id="setting-streaming"> Enable Streaming</label>
-            <label><input type="checkbox" id="setting-terminal"> Include Terminal Context</label>
-            <label>Max Open Tabs Context
-                <input type="number" id="setting-tabs" class="settings-input" min="0" max="30">
-            </label>
-            <button id="save-settings-btn" class="btn">Save Configuration</button>
-        </div>
-        
-        <div class="settings-group">
-            <button id="new-chat-btn" class="btn btn-secondary" style="width: 100%;">New Chat</button>
-        </div>
+        <h3 style="margin-top:0">Settings</h3>
+        <button id="close-settings-btn" class="btn" style="background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);margin-bottom:16px;">Close</button>
+        <button id="new-chat-btn" class="btn" style="width:100%;margin-bottom:16px;">+ New Chat</button>
+        <p style="opacity:0.7">Note: Keys and settings are managed in extension config.</p>
     </div>
 
     <!-- CHAT AREA -->
     <div id="messages-container" class="messages-container">
-        <!-- Messages will be injected here -->
-        <div class="message">
-            <div class="message-header">
-                <div class="message-role">🤖 Nexus-Code</div>
-            </div>
+        <div class="message assistant">
+            <div class="message-role">🤖 Nexus-Code</div>
             <div class="message-content">
-                <p>Hello! I am Nexus-Code. How can I help you today?</p>
+                <p>Hello! I am Nexus-Code. Ask me a question, or use <code>@</code> to add context.</p>
             </div>
         </div>
-    </div>
-
-    <div id="status-bar" class="status-bar">
-        <span id="cache-indicator"></span>
-        <span id="savings-indicator"></span>
-        <span id="cost-indicator"></span>
     </div>
 
     <!-- COMPOSER -->
-    <div class="composer-container">
-        <textarea id="message-input" class="composer-textarea" placeholder="Type a message... (Shift+Enter for new line)" rows="1"></textarea>
-        <div class="composer-actions">
-            <span id="char-count" class="char-count">0 chars</span>
-            <button id="send-btn" class="btn">Send</button>
+    <div class="composer-wrapper">
+        <div class="composer-container">
+            <textarea id="message-input" class="composer-textarea" placeholder="Ask a question... (Shift+Enter for new line)"></textarea>
+            <div class="composer-toolbar">
+                <button class="context-btn" title="Add context">➕ Add Context</button>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span id="char-count" style="font-size:10px;opacity:0.6;">0</span>
+                    <button id="send-btn" class="send-btn-icon" title="Send (Enter)">➤</button>
+                </div>
+            </div>
         </div>
+    </div>
+    
+    <div id="status-bar" class="status-bar">
+        <span id="cache-indicator"></span>
+        <span id="cost-indicator"></span>
     </div>
 
     <script nonce="{{nonce}}" src="{{webviewJsUri}}"></script>

@@ -53050,18 +53050,8 @@ var modelSelector = document.getElementById("model-selector");
 var settingsPanel = document.getElementById("settings-panel");
 var toggleSettingsBtn = document.getElementById("toggle-settings-btn");
 var closeSettingsBtn = document.getElementById("close-settings-btn");
-var apiKeyList = document.getElementById("api-key-list");
-var newKeyAlias = document.getElementById("new-key-alias");
-var newKeyValue = document.getElementById("new-key-value");
-var newKeyProvider = document.getElementById("new-key-provider");
-var saveKeyBtn = document.getElementById("save-key-btn");
-var settingStreaming = document.getElementById("setting-streaming");
-var settingTerminal = document.getElementById("setting-terminal");
-var settingTabs = document.getElementById("setting-tabs");
-var saveSettingsBtn = document.getElementById("save-settings-btn");
 var newChatBtn = document.getElementById("new-chat-btn");
 var cacheIndicator = document.getElementById("cache-indicator");
-var savingsIndicator = document.getElementById("savings-indicator");
 var costIndicator = document.getElementById("cost-indicator");
 var streamingBuffer = "";
 var currentStreamingMessageId = null;
@@ -53084,7 +53074,7 @@ closeSettingsBtn.addEventListener("click", () => {
 messageInput.addEventListener("input", () => {
   messageInput.style.height = "auto";
   messageInput.style.height = Math.min(messageInput.scrollHeight, 200) + "px";
-  charCount.textContent = `${messageInput.value.length} chars`;
+  charCount.textContent = `${messageInput.value.length}`;
 });
 messageInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -53099,21 +53089,6 @@ newChatBtn.addEventListener("click", () => {
   settingsPanel.classList.remove("open");
   clearStatus();
 });
-saveKeyBtn.addEventListener("click", () => {
-  const alias = newKeyAlias.value.trim();
-  const key = newKeyValue.value.trim();
-  const provider = newKeyProvider.value;
-  if (alias && key) {
-    vscode.postMessage({ type: "saveApiKey", alias, key, provider });
-    newKeyAlias.value = "";
-    newKeyValue.value = "";
-  }
-});
-saveSettingsBtn.addEventListener("click", () => {
-  vscode.postMessage({ type: "updateSetting", key: "nexuscode.streamingEnabled", value: settingStreaming.checked });
-  vscode.postMessage({ type: "updateSetting", key: "nexuscode.terminalContextEnabled", value: settingTerminal.checked });
-  vscode.postMessage({ type: "updateSetting", key: "nexuscode.maxOpenTabsContext", value: parseInt(settingTabs.value, 10) });
-});
 messagesContainer.addEventListener("scroll", () => {
   const isAtBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop <= messagesContainer.clientHeight + 10;
   userScrolledUp = !isAtBottom;
@@ -53121,25 +53096,19 @@ messagesContainer.addEventListener("scroll", () => {
 function sendMessage() {
   const text = messageInput.value.trim();
   if (!text) return;
-  if (sendBtn.disabled) return;
-  const stream = settingStreaming.checked;
   const modelAlias = modelSelector.value;
-  vscode.postMessage({ type: "sendMessage", text, modelAlias, stream });
+  vscode.postMessage({ type: "sendMessage", text, modelAlias, stream: true });
   appendMessage("user", text);
   messageInput.value = "";
   messageInput.style.height = "auto";
-  charCount.textContent = "0 chars";
-  sendBtn.disabled = true;
+  charCount.textContent = "0";
   userScrolledUp = false;
   const id = "msg-" + Date.now();
   currentStreamingMessageId = id;
   streamingBuffer = "";
   const html = `
-    <div id="${id}" class="message">
-      <div class="message-header">
-        <div class="message-role">\u{1F916} Nexus-Code</div>
-        <div class="status-badge pulsing-dot">thinking...</div>
-      </div>
+    <div id="${id}" class="message assistant">
+      <div class="message-role">\u{1F916} Nexus-Code <span class="status-badge pulsing-dot" style="font-weight:normal;opacity:0.7;margin-left:8px;">thinking...</span></div>
       <div class="message-content markdown-body" id="${id}-content"></div>
     </div>
   `;
@@ -53150,12 +53119,10 @@ function appendMessage(role, text) {
   const id = "msg-" + Date.now();
   const roleName = role === "user" ? "\u{1F464} You" : "\u{1F916} Nexus-Code";
   const html = `
-    <div id="${id}" class="message">
-      <div class="message-header">
-        <div class="message-role">${roleName}</div>
-      </div>
+    <div id="${id}" class="message ${role}">
+      <div class="message-role">${roleName}</div>
       <div class="message-content markdown-body">
-        ${g.parse(text)}
+        ${processMarkdown(g.parse(text))}
       </div>
     </div>
   `;
@@ -53167,11 +53134,44 @@ function scrollToBottom() {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 }
+function processMarkdown(html) {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  const pres = div.querySelectorAll("pre");
+  pres.forEach((pre) => {
+    const codeElement = pre.querySelector("code");
+    const codeText = codeElement?.innerText || "";
+    const lang = codeElement?.className.replace("hljs language-", "") || "text";
+    const wrapper = document.createElement("div");
+    wrapper.className = "code-block-wrapper";
+    const safeCodeText = encodeURIComponent(codeText);
+    wrapper.innerHTML = `
+            <div class="code-header">
+                <span>${lang}</span>
+                <div class="code-actions">
+                    <button class="code-action-btn" onclick="navigator.clipboard.writeText(decodeURIComponent('${safeCodeText}')).then(() => { this.innerHTML = '\u2713 Copied'; setTimeout(() => { this.innerHTML = '\u{1F4CB} Copy'; }, 2000); })">\u{1F4CB} Copy</button>
+                    <button class="code-action-btn apply-btn" onclick="vscode.postMessage({ type: 'sendMessage', text: 'Apply this code: \\n\`\`\`\\n' + decodeURIComponent('${safeCodeText}') + '\\n\`\`\`', modelAlias: document.getElementById('model-selector').value, stream: true })">\u25B6 Apply to Editor</button>
+                </div>
+            </div>
+        `;
+    pre.parentNode?.insertBefore(wrapper, pre);
+    wrapper.appendChild(pre);
+  });
+  return div.innerHTML;
+}
+window.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "l") {
+    e.preventDefault();
+    vscode.postMessage({ type: "newChat" });
+    messagesContainer.innerHTML = "";
+    clearStatus();
+  }
+});
 function clearStatus() {
   cacheIndicator.textContent = "";
-  savingsIndicator.textContent = "";
   costIndicator.textContent = "";
 }
+window.vscode = vscode;
 window.addEventListener("message", (event) => {
   const message = event.data;
   switch (message.type) {
@@ -53180,15 +53180,6 @@ window.addEventListener("message", (event) => {
       if (message.selectedModel) {
         modelSelector.value = message.selectedModel;
       }
-      settingStreaming.checked = message.settings.streamingEnabled;
-      settingTerminal.checked = message.settings.terminalContextEnabled;
-      settingTabs.value = message.settings.maxOpenTabsContext.toString();
-      apiKeyList.innerHTML = message.keyAliases.map((a) => `
-        <div class="api-key-item">
-          <span>${a}</span>
-          <button class="btn btn-secondary" onclick="deleteKey('${a}')">Delete</button>
-        </div>
-      `).join("");
       break;
     case "streamDelta":
       streamingBuffer += message.delta;
@@ -53197,7 +53188,7 @@ window.addEventListener("message", (event) => {
         if (currentStreamingMessageId) {
           const contentEl = document.getElementById(`${currentStreamingMessageId}-content`);
           if (contentEl) {
-            contentEl.innerHTML = g.parse(streamingBuffer);
+            contentEl.innerHTML = processMarkdown(g.parse(streamingBuffer));
             scrollToBottom();
           }
           const badgeEl = document.querySelector(`#${currentStreamingMessageId} .status-badge`);
@@ -53212,20 +53203,16 @@ window.addEventListener("message", (event) => {
       if (currentStreamingMessageId) {
         const contentEl = document.getElementById(`${currentStreamingMessageId}-content`);
         if (contentEl) {
-          contentEl.innerHTML = g.parse(message.response.response_text || streamingBuffer);
+          contentEl.innerHTML = processMarkdown(g.parse(message.response.response_text || streamingBuffer));
           scrollToBottom();
         }
         const badgeEl = document.querySelector(`#${currentStreamingMessageId} .status-badge`);
-        if (badgeEl) {
-          badgeEl.className = "status-badge";
-          badgeEl.textContent = (/* @__PURE__ */ new Date()).toLocaleTimeString();
-        }
+        if (badgeEl) badgeEl.remove();
       } else if (message.response.response_text) {
         appendMessage("assistant", message.response.response_text);
       }
       currentStreamingMessageId = null;
       streamingBuffer = "";
-      sendBtn.disabled = false;
       const r = message.response;
       if (r) {
         if (r.cache_hit) {
@@ -53233,7 +53220,6 @@ window.addEventListener("message", (event) => {
         } else {
           cacheIndicator.textContent = "";
         }
-        savingsIndicator.textContent = `Saved ${r.pre_compression_tokens - r.post_compression_tokens} tokens (${(r.compression_ratio * 100).toFixed(1)}%)`;
         costIndicator.textContent = `$${(r.cost_estimate_usd || 0).toFixed(4)}`;
       }
       break;
@@ -53243,11 +53229,8 @@ window.addEventListener("message", (event) => {
       if (!currentStreamingMessageId) {
         currentStreamingMessageId = "msg-" + Date.now();
         const html = `
-          <div id="${currentStreamingMessageId}" class="message">
-            <div class="message-header">
-              <div class="message-role">\u{1F916} Nexus-Code</div>
-              <div class="status-badge">executing tools...</div>
-            </div>
+          <div id="${currentStreamingMessageId}" class="message assistant">
+            <div class="message-role">\u{1F916} Nexus-Code <span class="status-badge">executing tools...</span></div>
             <div class="message-content" id="${currentStreamingMessageId}-content"></div>
           </div>
         `;
@@ -53290,7 +53273,6 @@ window.addEventListener("message", (event) => {
       } else {
         appendMessage("assistant", `**Error:** ${message.message}`);
       }
-      sendBtn.disabled = false;
       currentStreamingMessageId = null;
       streamingBuffer = "";
       break;
@@ -53304,8 +53286,5 @@ window.addEventListener("message", (event) => {
       break;
   }
 });
-window.deleteKey = function(alias) {
-  vscode.postMessage({ type: "deleteApiKey", alias });
-};
 vscode.postMessage({ type: "webviewReady" });
 //# sourceMappingURL=main.js.map

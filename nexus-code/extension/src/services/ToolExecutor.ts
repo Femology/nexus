@@ -30,6 +30,8 @@ export class ToolExecutor {
           return await this.getDiagnostics(toolCall);
         case 'show_diff':
           return await this.showDiff(toolCall);
+        case 'apply_edit':
+          return await this.applyEdit(toolCall);
         default:
           throw new Error(`Unknown tool: ${toolCall.tool_name}`);
       }
@@ -254,6 +256,71 @@ export class ToolExecutor {
       tool_call_id: toolCall.id,
       tool_name: toolCall.tool_name,
       output: "Diff view opened successfully.",
+      is_error: false
+    };
+  }
+
+  private async applyEdit(toolCall: ToolCall): Promise<ToolResult> {
+    const filePath = toolCall.arguments.path as string;
+    const editText = toolCall.arguments.edit_text as string;
+    this.validateWorkspacePath(filePath);
+
+    const uri = vscode.Uri.file(filePath);
+    const document = await vscode.workspace.openTextDocument(uri);
+    let content = document.getText();
+    
+    // Parse the Aider-style blocks
+    const blockRegex = /<<<<\n([\s\S]*?)\n====\n([\s\S]*?)\n>>>>/g;
+    let match;
+    let anyMatches = false;
+    let failedMatches = 0;
+    
+    while ((match = blockRegex.exec(editText)) !== null) {
+      anyMatches = true;
+      const oldCode = match[1];
+      const newCode = match[2];
+      
+      // Layer 1: Strict line-matching
+      if (content.includes(oldCode)) {
+        content = content.replace(oldCode, newCode);
+      } else {
+        // Layer 2: Strip trailing newlines/spaces on fuzzy match
+        const oldTrimmed = oldCode.trim();
+        if (content.includes(oldTrimmed)) {
+            content = content.replace(oldTrimmed, newCode.trim());
+        } else {
+            // Fail loudly
+            failedMatches++;
+        }
+      }
+    }
+    
+    if (!anyMatches) {
+        throw new Error("No valid search/replace blocks (<<<<...====...>>>>) found in edit_text.");
+    }
+    
+    if (failedMatches > 0) {
+        throw new Error(`Failed to apply ${failedMatches} edit blocks. The old code did not strictly match the file contents.`);
+    }
+
+    const edit = new vscode.WorkspaceEdit();
+    const fullRange = new vscode.Range(
+      document.positionAt(0),
+      document.positionAt(document.getText().length)
+    );
+    edit.replace(uri, fullRange, content);
+    
+    const success = await vscode.workspace.applyEdit(edit);
+    if (!success) {
+      throw new Error(`Failed to save edit to ${filePath}`);
+    }
+    
+    await document.save();
+
+    return {
+      tool_call_id: toolCall.id,
+      tool_name: toolCall.tool_name,
+      output: `Successfully applied edits to ${filePath}`,
       is_error: false
     };
   }

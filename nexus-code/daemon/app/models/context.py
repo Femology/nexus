@@ -62,6 +62,7 @@ class FilteredContextBundle(BaseModel):
     git_diff: Optional[str] = None
     diagnostics: Optional[str] = None
     terminal_snapshot: Optional[str] = None
+    memory_graph: Optional[str] = None
 
 class TaggedPrompt(BaseModel):
     messages: List[Dict[str, Any]]

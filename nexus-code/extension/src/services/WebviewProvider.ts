@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
+
 import * as fs from 'fs';
 import { KeyVault } from './KeyVault';
 import { getSettings, updateSetting } from './ExtensionConfig';
@@ -17,7 +17,7 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext,
+    _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
     this.view = webviewView;
@@ -97,7 +97,12 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
 
   private getHtmlForWebview(webview: vscode.Webview): string {
     const indexPath = vscode.Uri.joinPath(this.extensionUri, 'src', 'webview', 'index.html');
-    let html = fs.readFileSync(indexPath.fsPath, 'utf8');
+    let html = '';
+    try {
+        html = fs.readFileSync(indexPath.fsPath, 'utf8');
+    } catch (e: any) {
+        return `<html><body><h1>Error loading webview</h1><p>${e.message}</p><p>Path: ${indexPath.fsPath}</p></body></html>`;
+    }
 
     const nonce = this.getNonce();
     

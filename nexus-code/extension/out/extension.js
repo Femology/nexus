@@ -328,15 +328,16 @@ var ContextAggregator = class {
 // src/services/PayloadDispatcher.ts
 var vscode3 = __toESM(require("vscode"));
 var PayloadDispatcher = class {
-  constructor(keyVault, contextAggregator) {
+  constructor(keyVault, contextAggregator, daemonLifecycle2) {
     this.keyVault = keyVault;
     this.contextAggregator = contextAggregator;
+    this.daemonLifecycle = daemonLifecycle2;
   }
   orchestrator;
   setOrchestrator(orchestrator) {
     this.orchestrator = orchestrator;
   }
-  async dispatch(userMessage, modelAlias, stream, sessionId, webviewView, toolResults) {
+  async dispatch(userMessage, modelAlias, stream, sessionId, webviewView, toolResults, attempt = 1) {
     try {
       const settings = getSettings();
       const aliases = await this.keyVault.listAliases();
@@ -382,61 +383,100 @@ var PayloadDispatcher = class {
         history_ref: sessionId,
         tool_results: toolResults || null
       };
-      const url = `http://localhost:${settings.daemonPort}/v1/chat`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        let errMsg = `HTTP Error ${response.status} ${response.statusText}`;
-        try {
-          const errData = await response.json();
-          if (errData && errData.detail) {
-            errMsg = `Validation Error: ${JSON.stringify(errData.detail)}`;
-          }
-        } catch {
+      const port = this.daemonLifecycle.getPort();
+      const secret = this.daemonLifecycle.getSecret();
+      if (!port || !secret) {
+        throw new Error("Daemon is not running or lockfile is missing.");
+      }
+      const url = `http://localhost:${port}/v1/chat`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15e3);
+      let response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "X-Nexus-Secret": secret
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+      } catch (e) {
+        clearTimeout(timeoutId);
+        if (e.name === "AbortError") {
+          throw new Error("Daemon is slow to respond (>15s timeout). Please ensure the daemon is healthy.");
         }
-        throw new Error(errMsg);
+        if ((e.cause?.code === "ECONNREFUSED" || e.message.includes("fetch failed")) && attempt < 3) {
+          console.log(`Connection refused, retrying ${attempt}/3...`);
+          webviewView.webview.postMessage({
+            type: "streamDelta",
+            requestId: payload.request_id,
+            delta: `
+*[Starting daemon... retry ${attempt}/3]*
+`
+          });
+          await new Promise((r) => setTimeout(r, 2e3));
+          return this.dispatch(userMessage, modelAlias, stream, sessionId, webviewView, toolResults, attempt + 1);
+        }
+        throw e;
+      }
+      if (!response.ok) {
+        if (response.status === 422) {
+          let errDetail = await response.text();
+          throw new Error(`Internal error: invalid request format. Details: ${errDetail}`);
+        } else if (response.status >= 500) {
+          throw new Error(`Daemon error: HTTP ${response.status} ${response.statusText}`);
+        }
+        throw new Error(`HTTP Error ${response.status} ${response.statusText}`);
       }
       if (stream && response.body) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
         let done = false;
         let finalResponse = void 0;
-        while (!done) {
-          const { value, done: readerDone } = await reader.read();
-          done = readerDone;
-          if (value) {
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split("\n");
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const data = line.slice(6).trim();
-                if (data === "[DONE]") {
-                } else if (data) {
-                  try {
-                    const parsed = JSON.parse(data);
-                    if (parsed.response_text || parsed.delta) {
-                      webviewView.webview.postMessage({
-                        type: "streamDelta",
-                        requestId: payload.request_id,
-                        delta: parsed.delta || parsed.response_text || ""
-                      });
+        try {
+          while (!done) {
+            const { value, done: readerDone } = await reader.read();
+            done = readerDone;
+            if (value) {
+              const chunk = decoder.decode(value, { stream: true });
+              const lines = chunk.split("\n");
+              for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                  const data = line.slice(6).trim();
+                  if (data === "[DONE]") {
+                  } else if (data) {
+                    try {
+                      const parsed = JSON.parse(data);
+                      if (parsed.response_text || parsed.delta) {
+                        webviewView.webview.postMessage({
+                          type: "streamDelta",
+                          requestId: payload.request_id,
+                          delta: parsed.delta || parsed.response_text || ""
+                        });
+                      }
+                      if (parsed.is_final || parsed.tool_calls && parsed.tool_calls.length > 0) {
+                        finalResponse = parsed;
+                      }
+                    } catch (e) {
+                      console.error("Failed to parse SSE data", e);
                     }
-                    if (parsed.is_final || parsed.tool_calls && parsed.tool_calls.length > 0) {
-                      finalResponse = parsed;
-                    }
-                  } catch (e) {
-                    console.error("Failed to parse SSE data", e);
                   }
                 }
               }
             }
           }
+        } catch (streamError) {
+          console.error("Stream reading error", streamError);
+          webviewView.webview.postMessage({
+            type: "streamDelta",
+            requestId: payload.request_id,
+            delta: "\n\n**[Connection lost mid-stream]**\n"
+          });
+          return;
         }
         if (finalResponse && this.orchestrator) {
           await this.orchestrator.handleResponse(finalResponse, sessionId, modelAlias, stream, webviewView);
@@ -479,7 +519,7 @@ var WebviewProvider = class {
   }
   static viewType = "nexus-code-chat";
   view;
-  resolveWebviewView(webviewView, context, _token) {
+  resolveWebviewView(webviewView, _context, _token) {
     this.view = webviewView;
     webviewView.webview.options = {
       enableScripts: true,
@@ -545,7 +585,12 @@ var WebviewProvider = class {
   }
   getHtmlForWebview(webview) {
     const indexPath = vscode4.Uri.joinPath(this.extensionUri, "src", "webview", "index.html");
-    let html = fs.readFileSync(indexPath.fsPath, "utf8");
+    let html = "";
+    try {
+      html = fs.readFileSync(indexPath.fsPath, "utf8");
+    } catch (e) {
+      return `<html><body><h1>Error loading webview</h1><p>${e.message}</p><p>Path: ${indexPath.fsPath}</p></body></html>`;
+    }
     const nonce = this.getNonce();
     const webviewJsUri = webview.asWebviewUri(
       vscode4.Uri.joinPath(this.extensionUri, "out", "webview", "main.js")
@@ -568,6 +613,8 @@ var WebviewProvider = class {
 var vscode5 = __toESM(require("vscode"));
 var cp = __toESM(require("child_process"));
 var path = __toESM(require("path"));
+var fs2 = __toESM(require("fs"));
+var os = __toESM(require("os"));
 var DaemonLifecycle = class {
   constructor(extensionUri) {
     this.extensionUri = extensionUri;
@@ -578,27 +625,102 @@ var DaemonLifecycle = class {
   healthCheckInterval;
   restartCount = 0;
   isShuttingDown = false;
+  daemonPort;
+  daemonSecret;
+  getPort() {
+    return this.daemonPort;
+  }
+  getSecret() {
+    return this.daemonSecret;
+  }
+  getLockfilePath() {
+    return path.join(os.homedir(), ".nexus-code", "daemon.lock");
+  }
+  readLockfile() {
+    try {
+      const lockfilePath = this.getLockfilePath();
+      if (fs2.existsSync(lockfilePath)) {
+        const content = fs2.readFileSync(lockfilePath, "utf8");
+        return JSON.parse(content);
+      }
+    } catch (e) {
+    }
+    return null;
+  }
   async startDaemon() {
     this.isShuttingDown = false;
-    const settings = getSettings();
-    const port = settings.daemonPort;
-    if (await this.checkHealth(port)) {
-      this.outputChannel.appendLine(`Daemon already running on port ${port}.`);
-      this.startHealthCheckLoop();
-      return;
+    const existingDaemon = this.readLockfile();
+    if (existingDaemon) {
+      if (await this.checkHealth(existingDaemon.port, existingDaemon.secret)) {
+        this.outputChannel.appendLine(`Reconnected to existing daemon on port ${existingDaemon.port}.`);
+        this.daemonPort = existingDaemon.port;
+        this.daemonSecret = existingDaemon.secret;
+        this.startHealthCheckLoop();
+        return;
+      } else {
+        this.outputChannel.appendLine("Found stale lockfile or unresponsive daemon. Cleaning up...");
+        try {
+          fs2.unlinkSync(this.getLockfilePath());
+        } catch (e) {
+        }
+      }
     }
-    this.outputChannel.appendLine(`Starting daemon on port ${port}...`);
-    const pythonExec = this.resolvePythonExecutable();
-    const daemonDir = path.join(this.extensionUri.fsPath, "..", "daemon");
-    this.childProcess = cp.spawn(pythonExec, ["-m", "uvicorn", "app.main:app", "--port", port.toString(), "--host", "127.0.0.1"], {
+    this.outputChannel.appendLine(`Starting new daemon...`);
+    let daemonDir = path.join(this.extensionUri.fsPath, "daemon");
+    if (!fs2.existsSync(daemonDir)) {
+      daemonDir = path.join(this.extensionUri.fsPath, "..", "daemon");
+    }
+    const isWin = process.platform === "win32";
+    const venvDir = path.join(daemonDir, "venv");
+    const venvPython = path.join(venvDir, isWin ? "Scripts" : "bin", isWin ? "python.exe" : "python");
+    if (!fs2.existsSync(venvDir)) {
+      this.outputChannel.appendLine(`Creating Python virtual environment in ${venvDir}...`);
+      try {
+        cp.execSync(`python3 -m venv venv`, { cwd: daemonDir });
+        this.outputChannel.appendLine(`Installing requirements...`);
+        cp.execSync(`${venvPython} -m pip install -r requirements.txt`, { cwd: daemonDir });
+      } catch (e) {
+        this.outputChannel.appendLine(`Failed to setup venv: ${e.message}`);
+        vscode5.window.showErrorMessage("Failed to setup Python virtual environment for Nexus-Code Daemon.");
+        throw e;
+      }
+    }
+    const pythonExec = venvPython;
+    try {
+      cp.execSync(`${pythonExec} --version`);
+    } catch (e) {
+      vscode5.window.showErrorMessage(
+        "Python not found or venv is broken. Nexus-Code requires Python to run its daemon.",
+        "View Logs"
+      ).then((selection) => {
+        if (selection === "View Logs") {
+          this.outputChannel.show();
+        }
+      });
+      throw new Error("Python executable not found.");
+    }
+    this.childProcess = cp.spawn(pythonExec, ["-m", "app.main"], {
       cwd: daemonDir,
       env: process.env
     });
+    let stderrBuffer = "";
     this.childProcess.stdout?.on("data", (data) => {
       this.outputChannel.append(data.toString());
     });
     this.childProcess.stderr?.on("data", (data) => {
-      this.outputChannel.append(data.toString());
+      const output = data.toString();
+      this.outputChannel.append(output);
+      stderrBuffer += output;
+      if (output.includes("error while attempting to bind on address") && output.includes("address already in use")) {
+        vscode5.window.showErrorMessage(
+          `Daemon port binding error.`,
+          "View Logs"
+        ).then((selection) => {
+          if (selection === "View Logs") {
+            this.outputChannel.show();
+          }
+        });
+      }
     });
     this.childProcess.on("exit", (code, signal) => {
       this.outputChannel.appendLine(`Daemon exited with code ${code} and signal ${signal}`);
@@ -606,13 +728,31 @@ var DaemonLifecycle = class {
         this.handleCrash();
       }
     });
-    const success = await this.waitForHealth(port, 3e4);
+    const lockfileCreated = await this.waitForLockfile(5e3);
+    if (!lockfileCreated) {
+      throw new Error(`Daemon failed to create lockfile. Stderr snippet: ${stderrBuffer.substring(0, 500)}`);
+    }
+    const newDaemon = this.readLockfile();
+    if (!newDaemon) {
+      throw new Error("Daemon created lockfile but failed to read it.");
+    }
+    this.daemonPort = newDaemon.port;
+    this.daemonSecret = newDaemon.secret;
+    const success = await this.waitForHealth(this.daemonPort, this.daemonSecret, 3e4);
     if (success) {
-      this.outputChannel.appendLine("Daemon started successfully.");
+      this.outputChannel.appendLine(`Daemon started successfully on port ${this.daemonPort}.`);
       this.restartCount = 0;
       this.startHealthCheckLoop();
     } else {
-      throw new Error("Daemon failed to start within 30 seconds.");
+      vscode5.window.showErrorMessage(
+        "Daemon failed to pass health check within 30 seconds.",
+        "View Logs"
+      ).then((selection) => {
+        if (selection === "View Logs") {
+          this.outputChannel.show();
+        }
+      });
+      throw new Error(`Daemon failed to start. Stderr snippet: ${stderrBuffer.substring(0, 500)}`);
     }
   }
   async stopDaemon() {
@@ -630,27 +770,41 @@ var DaemonLifecycle = class {
         this.childProcess.kill("SIGKILL");
       }
     }
+    try {
+      fs2.unlinkSync(this.getLockfilePath());
+    } catch (e) {
+    }
     this.childProcess = void 0;
+    this.daemonPort = void 0;
+    this.daemonSecret = void 0;
   }
-  resolvePythonExecutable() {
-    const venvPath = path.join(this.extensionUri.fsPath, "..", "daemon", "venv", "Scripts", "python.exe");
-    return process.platform === "win32" ? "python" : "python3";
-  }
-  async checkHealth(port) {
+  async checkHealth(port, secret) {
     try {
       const response = await fetch(`http://localhost:${port}/health`, {
-        method: "GET"
-        // signal could be used for timeout, but fetch API doesn't support it natively without AbortController
+        method: "GET",
+        headers: {
+          "X-Nexus-Secret": secret
+        }
       });
       return response.ok;
     } catch {
       return false;
     }
   }
-  async waitForHealth(port, timeoutMs) {
+  async waitForLockfile(timeoutMs) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      if (await this.checkHealth(port)) {
+      if (this.readLockfile() !== null) {
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return false;
+  }
+  async waitForHealth(port, secret, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (await this.checkHealth(port, secret)) {
         return true;
       }
       await new Promise((r) => setTimeout(r, 500));
@@ -660,9 +814,8 @@ var DaemonLifecycle = class {
   startHealthCheckLoop() {
     this.stopHealthCheckLoop();
     this.healthCheckInterval = setInterval(async () => {
-      if (this.isShuttingDown) return;
-      const port = getSettings().daemonPort;
-      const healthy = await this.checkHealth(port);
+      if (this.isShuttingDown || !this.daemonPort || !this.daemonSecret) return;
+      const healthy = await this.checkHealth(this.daemonPort, this.daemonSecret);
       if (!healthy) {
         this.outputChannel.appendLine("Health check failed. Initiating restart...");
         this.handleCrash();
@@ -715,8 +868,8 @@ var DiffContentProvider = class {
 // src/services/ToolExecutor.ts
 var vscode7 = __toESM(require("vscode"));
 var path2 = __toESM(require("path"));
-var os = __toESM(require("os"));
-var fs2 = __toESM(require("fs"));
+var os2 = __toESM(require("os"));
+var fs3 = __toESM(require("fs"));
 var ToolExecutor = class {
   constructor(diffProvider) {
     this.diffProvider = diffProvider;
@@ -741,6 +894,8 @@ var ToolExecutor = class {
           return await this.getDiagnostics(toolCall);
         case "show_diff":
           return await this.showDiff(toolCall);
+        case "apply_edit":
+          return await this.applyEdit(toolCall);
         default:
           throw new Error(`Unknown tool: ${toolCall.tool_name}`);
       }
@@ -827,7 +982,7 @@ var ToolExecutor = class {
       this.terminal = vscode7.window.createTerminal("Nexus-Code");
     }
     this.terminal.show(true);
-    const tmpFile = path2.join(os.tmpdir(), `nexus-term-${Date.now()}.txt`);
+    const tmpFile = path2.join(os2.tmpdir(), `nexus-term-${Date.now()}.txt`);
     const marker = `NEXUS_TERM_DONE_${Date.now()}`;
     const isWin = process.platform === "win32";
     const wrappedCmd = isWin ? `(& { ${command} } | Tee-Object -FilePath "${tmpFile}"); Write-Output "${marker}" >> "${tmpFile}"` : `(${command}) | tee "${tmpFile}"; echo "${marker}" >> "${tmpFile}"`;
@@ -835,12 +990,12 @@ var ToolExecutor = class {
     const start = Date.now();
     let output = "";
     while (Date.now() - start < timeoutMs) {
-      if (fs2.existsSync(tmpFile)) {
-        output = fs2.readFileSync(tmpFile, "utf-8");
+      if (fs3.existsSync(tmpFile)) {
+        output = fs3.readFileSync(tmpFile, "utf-8");
         if (output.includes(marker)) {
           output = output.replace(marker, "").trim();
           try {
-            fs2.unlinkSync(tmpFile);
+            fs3.unlinkSync(tmpFile);
           } catch (e) {
           }
           return {
@@ -853,10 +1008,10 @@ var ToolExecutor = class {
       }
       await new Promise((r) => setTimeout(r, 500));
     }
-    if (fs2.existsSync(tmpFile)) {
-      output = fs2.readFileSync(tmpFile, "utf-8").trim();
+    if (fs3.existsSync(tmpFile)) {
+      output = fs3.readFileSync(tmpFile, "utf-8").trim();
       try {
-        fs2.unlinkSync(tmpFile);
+        fs3.unlinkSync(tmpFile);
       } catch (e) {
       }
     }
@@ -938,6 +1093,56 @@ ${output}`);
       is_error: false
     };
   }
+  async applyEdit(toolCall) {
+    const filePath = toolCall.arguments.path;
+    const editText = toolCall.arguments.edit_text;
+    this.validateWorkspacePath(filePath);
+    const uri = vscode7.Uri.file(filePath);
+    const document = await vscode7.workspace.openTextDocument(uri);
+    let content = document.getText();
+    const blockRegex = /<<<<\n([\s\S]*?)\n====\n([\s\S]*?)\n>>>>/g;
+    let match;
+    let anyMatches = false;
+    let failedMatches = 0;
+    while ((match = blockRegex.exec(editText)) !== null) {
+      anyMatches = true;
+      const oldCode = match[1];
+      const newCode = match[2];
+      if (content.includes(oldCode)) {
+        content = content.replace(oldCode, newCode);
+      } else {
+        const oldTrimmed = oldCode.trim();
+        if (content.includes(oldTrimmed)) {
+          content = content.replace(oldTrimmed, newCode.trim());
+        } else {
+          failedMatches++;
+        }
+      }
+    }
+    if (!anyMatches) {
+      throw new Error("No valid search/replace blocks (<<<<...====...>>>>) found in edit_text.");
+    }
+    if (failedMatches > 0) {
+      throw new Error(`Failed to apply ${failedMatches} edit blocks. The old code did not strictly match the file contents.`);
+    }
+    const edit = new vscode7.WorkspaceEdit();
+    const fullRange = new vscode7.Range(
+      document.positionAt(0),
+      document.positionAt(document.getText().length)
+    );
+    edit.replace(uri, fullRange, content);
+    const success = await vscode7.workspace.applyEdit(edit);
+    if (!success) {
+      throw new Error(`Failed to save edit to ${filePath}`);
+    }
+    await document.save();
+    return {
+      tool_call_id: toolCall.id,
+      tool_name: toolCall.tool_name,
+      output: `Successfully applied edits to ${filePath}`,
+      is_error: false
+    };
+  }
 };
 
 // src/services/ToolLoopOrchestrator.ts
@@ -1009,13 +1214,13 @@ function activate(context) {
   outputChannel.appendLine("Nexus-Code extension activating...");
   const keyVault = new KeyVault(context.secrets);
   const contextAggregator = new ContextAggregator();
-  const payloadDispatcher = new PayloadDispatcher(keyVault, contextAggregator);
+  daemonLifecycle = new DaemonLifecycle(context.extensionUri);
+  const payloadDispatcher = new PayloadDispatcher(keyVault, contextAggregator, daemonLifecycle);
   const diffProvider = new DiffContentProvider();
   const toolExecutor = new ToolExecutor(diffProvider);
   const toolOrchestrator = new ToolLoopOrchestrator(toolExecutor, payloadDispatcher);
   payloadDispatcher.setOrchestrator(toolOrchestrator);
   const webviewProvider = new WebviewProvider(context.extensionUri, keyVault, payloadDispatcher);
-  daemonLifecycle = new DaemonLifecycle(context.extensionUri);
   context.subscriptions.push(
     vscode8.workspace.registerTextDocumentContentProvider(DiffContentProvider.scheme, diffProvider)
   );

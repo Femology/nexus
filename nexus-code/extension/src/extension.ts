@@ -17,7 +17,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // Initialize Services
   const keyVault = new KeyVault(context.secrets);
   const contextAggregator = new ContextAggregator();
-  const payloadDispatcher = new PayloadDispatcher(keyVault, contextAggregator);
+  daemonLifecycle = new DaemonLifecycle(context.extensionUri);
+  const payloadDispatcher = new PayloadDispatcher(keyVault, contextAggregator, daemonLifecycle);
   
   // Phase 3 DI
   const diffProvider = new DiffContentProvider();
@@ -26,7 +27,6 @@ export function activate(context: vscode.ExtensionContext): void {
   payloadDispatcher.setOrchestrator(toolOrchestrator);
 
   const webviewProvider = new WebviewProvider(context.extensionUri, keyVault, payloadDispatcher);
-  daemonLifecycle = new DaemonLifecycle(context.extensionUri);
 
   // Register Document Provider for Diff
   context.subscriptions.push(

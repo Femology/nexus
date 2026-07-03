@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { getSettings } from './ExtensionConfig';
 
 export class DaemonLifecycle {
@@ -9,48 +11,103 @@ export class DaemonLifecycle {
   private healthCheckInterval?: NodeJS.Timeout;
   private restartCount = 0;
   private isShuttingDown = false;
+  
+  private daemonPort?: number;
+  private daemonSecret?: string;
 
   constructor(private readonly extensionUri: vscode.Uri) {
     this.outputChannel = vscode.window.createOutputChannel('Nexus-Code Daemon');
   }
 
+  public getPort(): number | undefined {
+      return this.daemonPort;
+  }
+
+  public getSecret(): string | undefined {
+      return this.daemonSecret;
+  }
+
+  private getLockfilePath(): string {
+      return path.join(os.homedir(), '.nexus-code', 'daemon.lock');
+  }
+
+  private readLockfile(): { pid: number, port: number, secret: string } | null {
+      try {
+          const lockfilePath = this.getLockfilePath();
+          if (fs.existsSync(lockfilePath)) {
+              const content = fs.readFileSync(lockfilePath, 'utf8');
+              return JSON.parse(content);
+          }
+      } catch (e) {
+          // ignore parsing error or permission error
+      }
+      return null;
+  }
+
     public async startDaemon(): Promise<void> {
     this.isShuttingDown = false;
-    const settings = getSettings();
-    const port = settings.daemonPort;
 
-    // 1. Check if already running
-    if (await this.checkHealth(port)) {
-      this.outputChannel.appendLine(`Daemon already running on port ${port}.`);
-      this.startHealthCheckLoop();
-      return;
+    // 1. Check lockfile to reuse an existing running daemon
+    const existingDaemon = this.readLockfile();
+    if (existingDaemon) {
+        if (await this.checkHealth(existingDaemon.port, existingDaemon.secret)) {
+            this.outputChannel.appendLine(`Reconnected to existing daemon on port ${existingDaemon.port}.`);
+            this.daemonPort = existingDaemon.port;
+            this.daemonSecret = existingDaemon.secret;
+            this.startHealthCheckLoop();
+            return;
+        } else {
+            this.outputChannel.appendLine('Found stale lockfile or unresponsive daemon. Cleaning up...');
+            try {
+                fs.unlinkSync(this.getLockfilePath());
+            } catch (e) {}
+        }
     }
 
-    this.outputChannel.appendLine(`Starting daemon on port ${port}...`);
+    this.outputChannel.appendLine(`Starting new daemon...`);
 
-    // 3. Resolve python executable
-    const pythonExec = this.resolvePythonExecutable();
+    // 3. Resolve python executable & Daemon Dir
+    let daemonDir = path.join(this.extensionUri.fsPath, 'daemon');
+    if (!fs.existsSync(daemonDir)) {
+        // Fallback for local development (F5)
+        daemonDir = path.join(this.extensionUri.fsPath, '..', 'daemon');
+    }
+
+    const isWin = process.platform === 'win32';
+    const venvDir = path.join(daemonDir, 'venv');
+    const venvPython = path.join(venvDir, isWin ? 'Scripts' : 'bin', isWin ? 'python.exe' : 'python');
+
+    if (!fs.existsSync(venvDir)) {
+        this.outputChannel.appendLine(`Creating Python virtual environment in ${venvDir}...`);
+        try {
+            cp.execSync(`python3 -m venv venv`, { cwd: daemonDir });
+            this.outputChannel.appendLine(`Installing requirements...`);
+            cp.execSync(`${venvPython} -m pip install -r requirements.txt`, { cwd: daemonDir });
+        } catch (e: any) {
+            this.outputChannel.appendLine(`Failed to setup venv: ${e.message}`);
+            vscode.window.showErrorMessage("Failed to setup Python virtual environment for Nexus-Code Daemon.");
+            throw e;
+        }
+    }
+
+    const pythonExec = venvPython;
     
-    // Check if python is actually available
     try {
         cp.execSync(`${pythonExec} --version`);
     } catch (e) {
         vscode.window.showErrorMessage(
-            'Python not found. Nexus-Code requires Python to run its daemon.',
-            'Download Python', 'Configure Path'
+            'Python not found or venv is broken. Nexus-Code requires Python to run its daemon.',
+            'View Logs'
         ).then(selection => {
-            if (selection === 'Download Python') {
-                vscode.env.openExternal(vscode.Uri.parse('https://www.python.org/downloads/'));
-            } else if (selection === 'Configure Path') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'nexus-code.pythonPath');
+            if (selection === 'View Logs') {
+                this.outputChannel.show();
             }
         });
         throw new Error('Python executable not found.');
     }
 
-    // 4. Spawn child process
-    const daemonDir = path.join(this.extensionUri.fsPath, '..', 'daemon');
-    this.childProcess = cp.spawn(pythonExec, ['-m', 'uvicorn', 'app.main:app', '--port', port.toString(), '--host', '127.0.0.1'], {
+    // 4. Spawn child process to run main.py which generates lockfile
+    this.childProcess = cp.spawn(pythonExec, ['-m', 'app.main'], {
       cwd: daemonDir,
       env: process.env
     });
@@ -67,14 +124,13 @@ export class DaemonLifecycle {
       this.outputChannel.append(output);
       stderrBuffer += output;
       
-      // Port in use check
       if (output.includes('error while attempting to bind on address') && output.includes('address already in use')) {
           vscode.window.showErrorMessage(
-              `Port ${port} is already in use.`,
-              'Change Port'
+              `Daemon port binding error.`,
+              'View Logs'
           ).then(selection => {
-              if (selection === 'Change Port') {
-                  vscode.commands.executeCommand('workbench.action.openSettings', 'nexus-code.daemonPort');
+              if (selection === 'View Logs') {
+                  this.outputChannel.show();
               }
           });
       }
@@ -87,15 +143,29 @@ export class DaemonLifecycle {
       }
     });
 
+    // Wait for the lockfile to be created by the new process (up to 5 seconds)
+    const lockfileCreated = await this.waitForLockfile(5000);
+    if (!lockfileCreated) {
+        throw new Error(`Daemon failed to create lockfile. Stderr snippet: ${stderrBuffer.substring(0, 500)}`);
+    }
+
+    const newDaemon = this.readLockfile();
+    if (!newDaemon) {
+        throw new Error('Daemon created lockfile but failed to read it.');
+    }
+
+    this.daemonPort = newDaemon.port;
+    this.daemonSecret = newDaemon.secret;
+
     // 6. Poll health for up to 30 seconds
-    const success = await this.waitForHealth(port, 30000);
+    const success = await this.waitForHealth(this.daemonPort, this.daemonSecret, 30000);
     if (success) {
-      this.outputChannel.appendLine('Daemon started successfully.');
+      this.outputChannel.appendLine(`Daemon started successfully on port ${this.daemonPort}.`);
       this.restartCount = 0; // reset on success
       this.startHealthCheckLoop();
     } else {
       vscode.window.showErrorMessage(
-          'Daemon failed to start within 30 seconds.',
+          'Daemon failed to pass health check within 30 seconds.',
           'View Logs'
       ).then(selection => {
           if (selection === 'View Logs') {
@@ -114,7 +184,6 @@ export class DaemonLifecycle {
       this.outputChannel.appendLine('Stopping daemon...');
       this.childProcess.kill('SIGTERM');
       
-      // Wait up to 5 seconds
       for (let i = 0; i < 10; i++) {
         if (this.childProcess.killed) break;
         await new Promise(r => setTimeout(r, 500));
@@ -125,23 +194,26 @@ export class DaemonLifecycle {
         this.childProcess.kill('SIGKILL');
       }
     }
+    
+    // Clean up the lockfile
+    try {
+        fs.unlinkSync(this.getLockfilePath());
+    } catch (e) {}
+
     this.childProcess = undefined;
+    this.daemonPort = undefined;
+    this.daemonSecret = undefined;
   }
 
-  private resolvePythonExecutable(): string {
-    // In a real production extension, you'd check for a bundled python 
-    // environment or extension setting. For Phase 2, we fallback to system `python`.
-    // Actually we can check if `venv` exists.
-    const venvPath = path.join(this.extensionUri.fsPath, '..', 'daemon', 'venv', 'Scripts', 'python.exe');
-    // We won't block on checking fs here for simplicity, assume 'python' is on path if no venv logic is complex.
-    return process.platform === 'win32' ? 'python' : 'python3';
-  }
 
-  private async checkHealth(port: number): Promise<boolean> {
+
+  private async checkHealth(port: number, secret: string): Promise<boolean> {
     try {
       const response = await fetch(`http://localhost:${port}/health`, {
         method: 'GET',
-        // signal could be used for timeout, but fetch API doesn't support it natively without AbortController
+        headers: {
+            'X-Nexus-Secret': secret
+        }
       });
       return response.ok;
     } catch {
@@ -149,10 +221,21 @@ export class DaemonLifecycle {
     }
   }
 
-  private async waitForHealth(port: number, timeoutMs: number): Promise<boolean> {
+  private async waitForLockfile(timeoutMs: number): Promise<boolean> {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+          if (this.readLockfile() !== null) {
+              return true;
+          }
+          await new Promise(r => setTimeout(r, 200));
+      }
+      return false;
+  }
+
+  private async waitForHealth(port: number, secret: string, timeoutMs: number): Promise<boolean> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      if (await this.checkHealth(port)) {
+      if (await this.checkHealth(port, secret)) {
         return true;
       }
       await new Promise(r => setTimeout(r, 500));
@@ -163,9 +246,8 @@ export class DaemonLifecycle {
   private startHealthCheckLoop() {
     this.stopHealthCheckLoop();
     this.healthCheckInterval = setInterval(async () => {
-      if (this.isShuttingDown) return;
-      const port = getSettings().daemonPort;
-      const healthy = await this.checkHealth(port);
+      if (this.isShuttingDown || !this.daemonPort || !this.daemonSecret) return;
+      const healthy = await this.checkHealth(this.daemonPort, this.daemonSecret);
       if (!healthy) {
         this.outputChannel.appendLine('Health check failed. Initiating restart...');
         this.handleCrash();

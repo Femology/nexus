@@ -6,6 +6,7 @@ import json
 import aiosqlite
 import os
 import tempfile
+import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List, Tuple
 from pydantic import BaseModel, Field
@@ -16,11 +17,26 @@ logger = logging.getLogger(__name__)
 
 class CacheEntry(BaseModel):
     embedding_id: int
+    content_hash: str
     response_text: str
     model_used: str
     created_at: datetime
     metadata: dict
     session_id: Optional[str] = None
+
+def compute_context_hash(user_message: str, context_bundle: dict) -> str:
+    """
+    Computes a deterministic SHA-256 hash of the assembled context bundle and user message.
+    Ensures that any variation in the exact context text or structure yields a different hash.
+    """
+    # Create a stable representation of the inputs
+    payload = {
+        "user_message": user_message,
+        "context_bundle": context_bundle
+    }
+    # Serialize with sorted keys to guarantee deterministic output
+    canon_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canon_json.encode("utf-8")).hexdigest()
 
 class SessionCache:
     def __init__(self, max_entries: int):
@@ -52,7 +68,7 @@ class SemanticCache:
             self.l1_caches[session_id] = SessionCache(self.l1_max_entries)
         return self.l1_caches[session_id]
 
-    async def check(self, session_id: str, query_embedding: np.ndarray) -> Optional[CacheResult]:
+    async def check(self, session_id: str, query_embedding: np.ndarray, content_hash: str) -> Optional[CacheResult]:
         if self.degraded:
             return None
 
@@ -70,8 +86,11 @@ class SemanticCache:
                     idx = I[0][0]
                     if sim > self.l1_similarity_threshold and idx != -1:
                         entry = l1_cache.entries[idx]
-                        logger.info(f"L1 Cache Hit: session={session_id}, sim={sim:.4f}")
-                        return CacheResult(hit=True, tier="L1", response=entry.response_text)
+                        if entry.content_hash == content_hash:
+                            logger.info(f"L1 Cache Hit: session={session_id}, sim={sim:.4f}")
+                            return CacheResult(hit=True, tier="L1", response=entry.response_text)
+                        else:
+                            logger.info(f"L1 Cache Miss (Content Hash mismatch): session={session_id}, sim={sim:.4f}")
 
             # 2. Check L2 (Workspace)
             async with self.l2_lock:
@@ -81,14 +100,17 @@ class SemanticCache:
                     idx = I[0][0]
                     if sim > self.l2_similarity_threshold and idx != -1:
                         entry = self.l2_entries[idx]
-                        # Verify TTL
-                        age = datetime.utcnow() - entry.created_at
-                        if age.days < self.l2_ttl_days:
-                            logger.info(f"L2 Cache Hit: sim={sim:.4f}")
-                            return CacheResult(hit=True, tier="L2", response=entry.response_text)
+                        if entry.content_hash == content_hash:
+                            # Verify TTL
+                            age = datetime.utcnow() - entry.created_at
+                            if age.days < self.l2_ttl_days:
+                                logger.info(f"L2 Cache Hit: sim={sim:.4f}")
+                                return CacheResult(hit=True, tier="L2", response=entry.response_text)
+                            else:
+                                # Expired
+                                pass
                         else:
-                            # Expired
-                            pass
+                            logger.info(f"L2 Cache Miss (Content Hash mismatch): sim={sim:.4f}")
         except Exception as e:
             logger.error(f"FAISS search error: {e}")
             self.degraded = True
@@ -96,7 +118,7 @@ class SemanticCache:
 
         return None
 
-    async def store(self, session_id: str, query_embedding: np.ndarray, response_text: str, model_used: str, metadata: dict) -> None:
+    async def store(self, session_id: str, query_embedding: np.ndarray, content_hash: str, response_text: str, model_used: str, metadata: dict) -> None:
         if self.degraded:
             return
 
@@ -112,6 +134,7 @@ class SemanticCache:
                 idx_l1 = l1_cache.index.ntotal
                 entry_l1 = CacheEntry(
                     embedding_id=idx_l1,
+                    content_hash=content_hash,
                     response_text=response_text,
                     model_used=model_used,
                     created_at=now,
@@ -129,6 +152,7 @@ class SemanticCache:
                 idx_l2 = self.l2_index.ntotal
                 entry_l2 = CacheEntry(
                     embedding_id=idx_l2,
+                    content_hash=content_hash,
                     response_text=response_text,
                     model_used=model_used,
                     created_at=now,

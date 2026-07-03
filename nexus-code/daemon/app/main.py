@@ -245,3 +245,74 @@ def create_app() -> FastAPI:
 # ---------------------------------------------------------------------------
 
 app = create_app()
+
+if __name__ == "__main__":
+    import os
+    import sys
+    import json
+    import socket
+    import secrets
+    import psutil
+    from pathlib import Path
+    import uvicorn
+
+    lockfile_path = Path.home() / ".nexus-code" / "daemon.lock"
+
+    # Check for existing daemon
+    if lockfile_path.exists():
+        try:
+            with open(lockfile_path, "r") as f:
+                data = json.load(f)
+            pid = data.get("pid")
+            if pid and psutil.pid_exists(pid):
+                process = psutil.Process(pid)
+                if "python" in process.name().lower() or "uvicorn" in process.name().lower():
+                    print(f"Daemon already running on pid {pid}")
+                    sys.exit(0)
+        except Exception:
+            # Stale or corrupted lockfile
+            pass
+
+    # Find available port
+    selected_port = None
+    for port in range(8000, 8011):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                selected_port = port
+                break
+            except OSError:
+                continue
+    
+    if selected_port is None:
+        print("No available port found in range 8000-8010", file=sys.stderr)
+        sys.exit(1)
+
+    # Generate secret
+    secret = secrets.token_hex(32)
+    os.environ["NEXUS_DAEMON_SECRET"] = secret
+
+    # Write lockfile
+    lockfile_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    if not lockfile_path.exists():
+        lockfile_path.touch(mode=0o600)
+    else:
+        lockfile_path.chmod(0o600)
+        
+    with open(lockfile_path, "w") as f:
+        json.dump({
+            "pid": os.getpid(),
+            "port": selected_port,
+            "secret": secret
+        }, f)
+
+    try:
+        # Run uvicorn programmatically
+        uvicorn.run("app.main:app", host="127.0.0.1", port=selected_port, workers=1)
+    finally:
+        if lockfile_path.exists():
+            try:
+                lockfile_path.unlink()
+            except OSError:
+                pass

@@ -4,13 +4,15 @@ import { ContextAggregator } from './ContextAggregator';
 import { getSettings } from './ExtensionConfig';
 import { NexusPayload, NexusResponse, ToolResult } from '../types/contracts';
 import type { ToolLoopOrchestrator } from './ToolLoopOrchestrator';
+import type { DaemonLifecycle } from './DaemonLifecycle';
 
 export class PayloadDispatcher {
   private orchestrator?: ToolLoopOrchestrator;
 
   constructor(
     private readonly keyVault: KeyVault,
-    private readonly contextAggregator: ContextAggregator
+    private readonly contextAggregator: ContextAggregator,
+    private readonly daemonLifecycle: DaemonLifecycle
   ) {}
 
   public setOrchestrator(orchestrator: ToolLoopOrchestrator) {
@@ -76,7 +78,14 @@ export class PayloadDispatcher {
         tool_results: toolResults || null,
       };
 
-      const url = `http://localhost:${settings.daemonPort}/v1/chat`;
+      const port = this.daemonLifecycle.getPort();
+      const secret = this.daemonLifecycle.getSecret();
+      
+      if (!port || !secret) {
+          throw new Error('Daemon is not running or lockfile is missing.');
+      }
+
+      const url = `http://localhost:${port}/v1/chat`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
@@ -86,7 +95,8 @@ export class PayloadDispatcher {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
+            'Authorization': `Bearer ${apiKey}`,
+            'X-Nexus-Secret': secret
           },
           body: JSON.stringify(payload),
           signal: controller.signal

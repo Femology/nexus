@@ -20,19 +20,22 @@ from starlette.responses import Response
 # Context variable holding the API key for the current request only
 # ---------------------------------------------------------------------------
 
+import os
+import secrets
+
 _api_key_var: Final[contextvars.ContextVar[str | None]] = contextvars.ContextVar(
     "nexus_api_key", default=None
 )
 
+def _get_shared_secret() -> str:
+    secret = os.environ.get("NEXUS_DAEMON_SECRET")
+    if not secret:
+        raise RuntimeError("NEXUS_DAEMON_SECRET environment variable is not set. Daemon lifecycle is broken.")
+    return secret
 
 def get_api_key() -> str | None:
-    """Retrieve the API key for the current request scope.
-
-    Returns ``None`` if no Authorization header was provided (e.g. on
-    health-check or models endpoints where a key is not required).
-    """
+    """Retrieve the API key for the current request scope."""
     return _api_key_var.get()
-
 
 def require_api_key() -> str:
     """Retrieve the API key, raising 401 if absent."""
@@ -52,16 +55,22 @@ def require_api_key() -> str:
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
-    """Extract ``Authorization: Bearer <key>`` into a request-scoped variable.
-
-    Endpoints that do not require authentication (``/health``,
-    ``/v1/models``) proceed normally when no header is present.  The
-    ``/v1/chat`` route calls :func:`require_api_key` explicitly.
-    """
+    """Extract ``Authorization: Bearer <key>`` into a request-scoped variable."""
 
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        
+        # Daemon Security Validation
+        # Exclude health check from secret validation? Actually, the prompt says
+        # "Fail loudly on invalid secret/foreign process conditions."
+        # We enforce X-Nexus-Secret on all requests.
+        provided_secret = request.headers.get("x-nexus-secret")
+        expected_secret = _get_shared_secret()
+        
+        if not provided_secret or not secrets.compare_digest(provided_secret, expected_secret):
+            return Response(content="Unauthorized: Invalid or missing X-Nexus-Secret", status_code=401)
+
         auth_header: str | None = request.headers.get("authorization")
         token: str | None = None
 
