@@ -553,18 +553,31 @@ var WebviewProvider = class {
         case "saveApiKey":
           await this.keyVault.storeKey(message.alias, message.key, message.provider);
           await this.sendInitializationData();
-          vscode4.window.showInformationMessage(`Nexus-Code: Key saved for alias "${message.alias}"`);
+          vscode4.window.showInformationMessage(`Nexus-Code: API key saved for ${message.provider}.`);
           break;
         case "deleteApiKey":
           await this.keyVault.deleteKey(message.alias);
           await this.sendInitializationData();
-          vscode4.window.showInformationMessage(`Nexus-Code: Key deleted for alias "${message.alias}"`);
+          vscode4.window.showInformationMessage(`Nexus-Code: API key removed for ${message.alias}.`);
           break;
         case "updateSetting":
           await updateSetting(message.key, message.value);
           break;
         case "newChat":
           vscode4.commands.executeCommand("nexus-code.newChat");
+          break;
+        case "openLink":
+          vscode4.env.openExternal(vscode4.Uri.parse(message.url));
+          break;
+        case "applyEdit":
+          const editor = vscode4.window.activeTextEditor;
+          if (editor) {
+            editor.edit((editBuilder) => {
+              editBuilder.replace(editor.selection, message.code);
+            });
+          } else {
+            vscode4.window.showWarningMessage("Nexus-Code: No active editor to apply code to.");
+          }
           break;
       }
     });
@@ -573,14 +586,12 @@ var WebviewProvider = class {
     if (!this.view) return;
     const settings = getSettings();
     const aliasesMeta = await this.keyVault.listAliases();
-    const keyAliases = aliasesMeta.map((a) => a.alias);
-    const models = ["gpt-4o", "gpt-4o-mini", "claude-sonnet-4-5", "claude-haiku-3-5", "gemini-2.0-flash", "deepseek-chat"];
     this.view.webview.postMessage({
       type: "initialize",
-      models,
+      keyAliases: aliasesMeta,
+      // Full metadata: [{ alias, provider }]
       selectedModel: settings.defaultModel,
-      settings,
-      keyAliases
+      settings
     });
   }
   getHtmlForWebview(webview) {

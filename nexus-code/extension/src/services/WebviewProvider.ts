@@ -58,18 +58,31 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
         case 'saveApiKey':
           await this.keyVault.storeKey(message.alias, message.key, message.provider);
           await this.sendInitializationData();
-          vscode.window.showInformationMessage(`Nexus-Code: Key saved for alias "${message.alias}"`);
+          vscode.window.showInformationMessage(`Nexus-Code: API key saved for ${message.provider}.`);
           break;
         case 'deleteApiKey':
           await this.keyVault.deleteKey(message.alias);
           await this.sendInitializationData();
-          vscode.window.showInformationMessage(`Nexus-Code: Key deleted for alias "${message.alias}"`);
+          vscode.window.showInformationMessage(`Nexus-Code: API key removed for ${message.alias}.`);
           break;
         case 'updateSetting':
           await updateSetting(message.key, message.value);
           break;
         case 'newChat':
           vscode.commands.executeCommand('nexus-code.newChat');
+          break;
+        case 'openLink':
+          vscode.env.openExternal(vscode.Uri.parse(message.url));
+          break;
+        case 'applyEdit':
+          const editor = vscode.window.activeTextEditor;
+          if (editor) {
+            editor.edit(editBuilder => {
+              editBuilder.replace(editor.selection, message.code);
+            });
+          } else {
+            vscode.window.showWarningMessage('Nexus-Code: No active editor to apply code to.');
+          }
           break;
       }
     });
@@ -80,18 +93,12 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
     
     const settings = getSettings();
     const aliasesMeta = await this.keyVault.listAliases();
-    const keyAliases = aliasesMeta.map(a => a.alias);
-    
-    // For Phase 2, we just hardcode the known models.
-    // In Phase 4, we query GET /v1/models from Daemon.
-    const models = ['gpt-4o', 'gpt-4o-mini', 'claude-sonnet-4-5', 'claude-haiku-3-5', 'gemini-2.0-flash', 'deepseek-chat'];
     
     this.view.webview.postMessage({
       type: 'initialize',
-      models,
+      keyAliases: aliasesMeta,   // Full metadata: [{ alias, provider }]
       selectedModel: settings.defaultModel,
       settings,
-      keyAliases
     });
   }
 

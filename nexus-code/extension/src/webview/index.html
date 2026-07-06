@@ -7,19 +7,30 @@
     <title>Nexus-Code Chat</title>
     <style>
         :root {
-            --padding: 16px;
-            --border-color: var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-            --bubble-user: var(--vscode-editor-background);
-            --bubble-assistant: var(--vscode-editorWidget-background);
+            --padding: 14px;
+            --border-color: var(--vscode-widget-border, rgba(128,128,128,0.2));
             --primary: var(--vscode-button-background);
             --primary-hover: var(--vscode-button-hoverBackground);
+            --primary-fg: var(--vscode-button-foreground);
+            --input-bg: var(--vscode-input-background);
+            --input-fg: var(--vscode-input-foreground);
+            --input-border: var(--vscode-input-border);
+            --panel-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+            --tab-active-bg: var(--vscode-tab-activeBackground);
+            --tab-border: var(--vscode-tab-border);
+            --description: var(--vscode-descriptionForeground);
+            --error-fg: var(--vscode-errorForeground, #f44747);
+            --success-fg: var(--vscode-terminal-ansiGreen, #4ec9b0);
+            --warning-fg: var(--vscode-editorWarning-foreground, #cca700);
         }
 
+        * { box-sizing: border-box; }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             font-size: 13px;
             color: var(--vscode-editor-foreground);
-            background-color: var(--vscode-editor-background);
+            background: var(--panel-bg);
             margin: 0;
             padding: 0;
             display: flex;
@@ -28,282 +39,721 @@
             overflow: hidden;
         }
 
-        /* HEADER */
+        /* ===== HEADER ===== */
         .header {
             display: flex;
-            justify-content: center;
             align-items: center;
-            padding: 10px;
+            gap: 8px;
+            padding: 8px 12px;
             border-bottom: 1px solid var(--border-color);
-            background-color: var(--vscode-editor-background);
+            flex-shrink: 0;
+        }
+
+        .model-selector-wrap {
+            flex: 1;
             position: relative;
+            display: flex;
+            align-items: center;
         }
 
         .model-selector {
-            background-color: var(--vscode-dropdown-background);
+            width: 100%;
+            background: var(--vscode-dropdown-background);
             color: var(--vscode-dropdown-foreground);
-            border: 1px solid var(--vscode-dropdown-border);
-            padding: 4px 24px 4px 12px;
+            border: 1px solid var(--vscode-dropdown-border, var(--border-color));
+            padding: 4px 26px 4px 10px;
             border-radius: 12px;
+            font-size: 12px;
             font-weight: 500;
             cursor: pointer;
             outline: none;
             appearance: none;
+            -webkit-appearance: none;
         }
 
-        .settings-btn {
+        .model-selector-arrow {
             position: absolute;
-            right: 12px;
+            right: 8px;
+            pointer-events: none;
+            font-size: 10px;
+            opacity: 0.6;
+        }
+
+        .icon-btn {
             background: none;
             border: none;
             color: var(--vscode-icon-foreground);
             cursor: pointer;
-            font-size: 16px;
-            padding: 4px;
-            opacity: 0.7;
-        }
-        .settings-btn:hover { opacity: 1; }
-
-        /* SETTINGS PANEL */
-        .settings-panel {
-            display: none;
-            position: absolute;
-            top: 45px; left: 0; right: 0; bottom: 0;
-            background-color: var(--vscode-editor-background);
-            z-index: 100;
-            padding: var(--padding);
-            overflow-y: auto;
-        }
-        .settings-panel.open { display: block; }
-        
-        .btn {
-            background-color: var(--primary);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 6px 12px;
-            cursor: pointer;
+            padding: 4px 6px;
             border-radius: 4px;
-            font-weight: 500;
+            opacity: 0.7;
+            font-size: 15px;
+            line-height: 1;
+            flex-shrink: 0;
         }
-        .btn:hover { background-color: var(--primary-hover); }
+        .icon-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
 
-        /* MESSAGES */
+        /* ===== VIEWS ===== */
+        .view { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+        .view.active { display: flex; }
+
+        /* ===== CHAT VIEW ===== */
+        #view-chat { flex-direction: column; }
+
         .messages-container {
-            flex-grow: 1;
+            flex: 1;
             overflow-y: auto;
-            padding: var(--padding);
+            padding: 12px var(--padding);
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 14px;
         }
+        .messages-container::-webkit-scrollbar { width: 4px; }
+        .messages-container::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
 
-        .message {
+        /* Welcome Screen */
+        .welcome-screen {
             display: flex;
             flex-direction: column;
-            gap: 6px;
-            max-width: 95%;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            padding: 24px;
+            text-align: center;
+            gap: 12px;
         }
+        .welcome-screen .logo { font-size: 40px; }
+        .welcome-screen h2 { margin: 0; font-size: 16px; }
+        .welcome-screen p { margin: 0; color: var(--description); font-size: 12px; line-height: 1.6; }
+        .welcome-btn {
+            margin-top: 8px;
+            background: var(--primary);
+            color: var(--primary-fg);
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .welcome-btn:hover { background: var(--primary-hover); }
 
+        /* Messages */
+        .message { display: flex; flex-direction: column; gap: 4px; max-width: 98%; }
         .message.user { align-self: flex-end; }
-        .message.assistant { align-self: flex-start; }
+        .message.assistant { align-self: flex-start; width: 100%; }
 
         .message-role {
+            font-size: 11px;
             font-weight: 600;
-            font-size: 0.85em;
-            color: var(--vscode-descriptionForeground);
-            margin-bottom: 2px;
+            color: var(--description);
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
-        .message-content {
-            padding: 10px 14px;
-            border-radius: 8px;
+        .message.user .message-content {
+            background: var(--vscode-textBlockQuote-background, rgba(128,128,128,0.12));
+            border: 1px solid var(--border-color);
+            border-radius: 8px 8px 2px 8px;
+            padding: 8px 12px;
             line-height: 1.5;
             word-wrap: break-word;
         }
 
-        .message.user .message-content {
-            background-color: var(--vscode-textBlockQuote-background, rgba(128,128,128,0.1));
-            border: 1px solid var(--border-color);
-            border-bottom-right-radius: 2px;
-        }
-
         .message.assistant .message-content {
-            background-color: transparent;
+            background: transparent;
+            line-height: 1.5;
+            word-wrap: break-word;
         }
 
-        .message-content p { margin: 0 0 10px 0; }
+        .message-content p { margin: 0 0 8px 0; }
         .message-content p:last-child { margin: 0; }
+        .message-content ul, .message-content ol { margin: 4px 0 8px 0; padding-left: 20px; }
+        .message-content li { margin: 2px 0; }
 
-        /* CODE BLOCKS */
+        /* Code Blocks */
         .code-block-wrapper {
-            margin: 10px 0;
+            margin: 8px 0;
             border-radius: 6px;
             overflow: hidden;
             border: 1px solid var(--border-color);
-            background-color: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2));
         }
-
         .code-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background-color: var(--vscode-editorGroupHeader-tabsBackground);
-            padding: 4px 8px;
-            border-bottom: 1px solid var(--border-color);
+            background: var(--vscode-editorGroupHeader-tabsBackground);
+            padding: 3px 8px;
             font-size: 11px;
-            color: var(--vscode-descriptionForeground);
+            color: var(--description);
         }
-
-        .code-actions {
-            display: flex;
-            gap: 6px;
-        }
-
+        .code-actions { display: flex; gap: 4px; }
         .code-action-btn {
             background: none;
             border: none;
             color: var(--vscode-icon-foreground);
             cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            opacity: 0.7;
-            padding: 2px 4px;
+            font-size: 11px;
+            padding: 2px 6px;
             border-radius: 3px;
+            opacity: 0.7;
         }
-        .code-action-btn:hover {
-            opacity: 1;
-            background-color: var(--vscode-toolbar-hoverBackground);
-        }
-
-        .message-content pre {
-            margin: 0;
-            padding: 12px;
-            overflow-x: auto;
-        }
-        .message-content code {
-            font-family: var(--vscode-editor-font-family);
+        .code-action-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+        .message-content pre { margin: 0; padding: 10px 12px; overflow-x: auto; background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.3)); }
+        .message-content code { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+        .message-content :not(pre) > code {
+            background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2));
+            padding: 1px 4px;
+            border-radius: 3px;
             font-size: 12px;
         }
 
-        /* COMPOSER */
+        /* Status Badge */
+        .status-badge {
+            font-size: 10px;
+            font-weight: normal;
+            color: var(--description);
+        }
+        .status-badge.pulsing { animation: pulse 1s infinite alternate; }
+        @keyframes pulse { from { opacity: 0.3; } to { opacity: 1; } }
+
+        /* Composer */
         .composer-wrapper {
-            padding: var(--padding);
-            background-color: var(--vscode-editor-background);
+            padding: 10px var(--padding) var(--padding);
             flex-shrink: 0;
         }
-
-        .composer-container {
+        .composer-box {
             border: 1px solid var(--border-color);
-            border-radius: 8px;
-            background-color: var(--vscode-input-background);
+            border-radius: 10px;
+            background: var(--input-bg);
             display: flex;
             flex-direction: column;
             padding: 8px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            transition: border-color 0.15s;
         }
-
+        .composer-box:focus-within { border-color: var(--primary); }
         .composer-textarea {
             width: 100%;
-            box-sizing: border-box;
             background: transparent;
-            color: var(--vscode-input-foreground);
+            color: var(--input-fg);
             border: none;
             resize: none;
             font-family: inherit;
             font-size: 13px;
-            min-height: 40px;
-            max-height: 200px;
+            min-height: 38px;
+            max-height: 180px;
             outline: none;
+            line-height: 1.5;
         }
-
         .composer-toolbar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-top: 8px;
+            margin-top: 6px;
         }
-
         .context-btn {
             background: none;
             border: none;
             color: var(--vscode-textLink-foreground);
             cursor: pointer;
-            font-weight: 500;
+            font-size: 12px;
             display: flex;
             align-items: center;
             gap: 4px;
+            opacity: 0.8;
         }
-        
-        .send-btn-icon {
+        .context-btn:hover { opacity: 1; }
+        .send-btn {
             background: var(--primary);
-            color: var(--vscode-button-foreground);
+            color: var(--primary-fg);
             border: none;
-            border-radius: 4px;
+            border-radius: 5px;
             width: 28px;
             height: 28px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
+            font-size: 13px;
+            flex-shrink: 0;
         }
-        .send-btn-icon:hover { background: var(--primary-hover); }
+        .send-btn:hover { background: var(--primary-hover); }
+        .send-btn:disabled { opacity: 0.4; cursor: default; }
 
         .status-bar {
             font-size: 10px;
-            padding: 4px 16px;
-            color: var(--vscode-descriptionForeground);
+            padding: 3px 14px;
+            color: var(--description);
             display: flex;
             justify-content: space-between;
             border-top: 1px solid var(--border-color);
+            flex-shrink: 0;
         }
-        
-        /* Loader */
-        .pulsing-dot { animation: pulse 1s infinite alternate; }
-        @keyframes pulse { from { opacity: 0.4; } to { opacity: 1; } }
+
+        /* ===== SETTINGS VIEW ===== */
+        #view-settings {
+            flex-direction: column;
+        }
+
+        .settings-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px var(--padding);
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        .settings-header h2 { margin: 0; font-size: 14px; font-weight: 600; flex: 1; }
+        .back-btn {
+            background: none;
+            border: none;
+            color: var(--vscode-textLink-foreground);
+            cursor: pointer;
+            font-size: 12px;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .back-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--description);
+            cursor: pointer;
+            padding: 8px 14px;
+            font-size: 12px;
+            font-weight: 500;
+            margin-bottom: -1px;
+        }
+        .tab-btn:hover { color: var(--vscode-editor-foreground); }
+        .tab-btn.active {
+            color: var(--vscode-editor-foreground);
+            border-bottom-color: var(--primary);
+        }
+
+        .tab-content { display: none; flex: 1; overflow-y: auto; padding: var(--padding); }
+        .tab-content.active { display: block; }
+        .tab-content::-webkit-scrollbar { width: 4px; }
+        .tab-content::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+
+        /* Provider Cards */
+        .section-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--description);
+            margin: 0 0 10px 0;
+        }
+
+        .provider-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 10px;
+            overflow: hidden;
+            transition: border-color 0.15s;
+        }
+        .provider-card:focus-within { border-color: var(--primary); }
+
+        .provider-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--vscode-editorGroupHeader-tabsBackground);
+        }
+        .provider-icon { font-size: 18px; }
+        .provider-info { flex: 1; }
+        .provider-name { font-weight: 600; font-size: 13px; }
+        .provider-desc { font-size: 11px; color: var(--description); margin-top: 1px; }
+        .provider-status {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        .provider-status.configured {
+            background: rgba(78, 201, 176, 0.15);
+            color: var(--success-fg);
+        }
+        .provider-status.not-configured {
+            background: rgba(204, 167, 0, 0.12);
+            color: var(--warning-fg);
+        }
+
+        .provider-card-body { padding: 10px 12px; }
+
+        .key-input-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .key-input {
+            flex: 1;
+            background: var(--input-bg);
+            color: var(--input-fg);
+            border: 1px solid var(--input-border, var(--border-color));
+            padding: 6px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-family: var(--vscode-editor-font-family, monospace);
+            outline: none;
+        }
+        .key-input:focus { border-color: var(--primary); }
+        .key-input::placeholder { color: var(--description); font-family: inherit; }
+
+        .btn-save {
+            background: var(--primary);
+            color: var(--primary-fg);
+            border: none;
+            padding: 6px 14px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        .btn-save:hover { background: var(--primary-hover); }
+
+        .btn-delete {
+            background: none;
+            color: var(--error-fg);
+            border: 1px solid var(--error-fg);
+            padding: 6px 12px;
+            border-radius: 5px;
+            font-size: 12px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .btn-delete:hover { background: rgba(244, 71, 71, 0.1); }
+
+        .key-hint {
+            font-size: 11px;
+            color: var(--description);
+            margin-top: 6px;
+        }
+        .key-hint a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+        .key-hint a:hover { text-decoration: underline; }
+
+        /* Chat settings */
+        .setting-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .setting-row:last-child { border-bottom: none; }
+        .setting-label { font-size: 12px; font-weight: 500; }
+        .setting-desc { font-size: 11px; color: var(--description); margin-top: 2px; }
+
+        .toggle-switch {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: var(--border-color);
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .toggle-slider::before {
+            content: '';
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            left: 3px;
+            top: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+        .toggle-switch input:checked + .toggle-slider { background: var(--primary); }
+        .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+        /* About tab */
+        .about-section { text-align: center; padding: 20px 0; }
+        .about-section .logo-big { font-size: 48px; }
+        .about-section h3 { margin: 8px 0 4px; font-size: 16px; }
+        .about-section .version { color: var(--description); font-size: 12px; }
+        .about-links { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+        .about-link-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--vscode-editor-foreground);
+            padding: 7px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .about-link-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+
+        /* New Chat button at bottom of settings */
+        .settings-footer {
+            padding: var(--padding);
+            border-top: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        .btn-new-chat {
+            width: 100%;
+            background: var(--primary);
+            color: var(--primary-fg);
+            border: none;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-new-chat:hover { background: var(--primary-hover); }
     </style>
 </head>
 <body>
+
+    <!-- ===== HEADER ===== -->
     <div class="header">
-        <select id="model-selector" class="model-selector"></select>
-        <button id="toggle-settings-btn" class="settings-btn" title="Settings">⚙️</button>
-    </div>
-
-    <!-- SETTINGS PANEL -->
-    <div id="settings-panel" class="settings-panel">
-        <h3 style="margin-top:0">Settings</h3>
-        <button id="close-settings-btn" class="btn" style="background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);margin-bottom:16px;">Close</button>
-        <button id="new-chat-btn" class="btn" style="width:100%;margin-bottom:16px;">+ New Chat</button>
-        <p style="opacity:0.7">Note: Keys and settings are managed in extension config.</p>
-    </div>
-
-    <!-- CHAT AREA -->
-    <div id="messages-container" class="messages-container">
-        <div class="message assistant">
-            <div class="message-role">🤖 Nexus-Code</div>
-            <div class="message-content">
-                <p>Hello! I am Nexus-Code. Ask me a question, or use <code>@</code> to add context.</p>
-            </div>
+        <div class="model-selector-wrap">
+            <select id="model-selector" class="model-selector">
+                <option value="">— Add a provider key first —</option>
+            </select>
+            <span class="model-selector-arrow">▾</span>
         </div>
+        <button id="btn-settings" class="icon-btn" title="Settings">⚙</button>
     </div>
 
-    <!-- COMPOSER -->
-    <div class="composer-wrapper">
-        <div class="composer-container">
-            <textarea id="message-input" class="composer-textarea" placeholder="Ask a question... (Shift+Enter for new line)"></textarea>
-            <div class="composer-toolbar">
-                <button class="context-btn" title="Add context">➕ Add Context</button>
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span id="char-count" style="font-size:10px;opacity:0.6;">0</span>
-                    <button id="send-btn" class="send-btn-icon" title="Send (Enter)">➤</button>
+    <!-- ===== CHAT VIEW ===== -->
+    <div id="view-chat" class="view active">
+
+        <!-- Welcome screen (shown when no keys) -->
+        <div id="welcome-screen" class="welcome-screen" style="display:none;">
+            <div class="logo">⚡</div>
+            <h2>Welcome to Nexus-Code</h2>
+            <p>Add your first API key to get started.<br>Nexus-Code supports OpenAI, Anthropic, Google, Fireworks AI, and more.</p>
+            <button class="welcome-btn" id="welcome-go-settings">⚙ Configure API Keys</button>
+        </div>
+
+        <!-- Messages -->
+        <div id="messages-container" class="messages-container">
+            <div class="message assistant">
+                <div class="message-role">⚡ Nexus-Code</div>
+                <div class="message-content">
+                    <p>Hello! I'm Nexus-Code — your blazing-fast AI coding assistant. Ask me anything about your code!</p>
                 </div>
             </div>
         </div>
+
+        <!-- Composer -->
+        <div class="composer-wrapper">
+            <div class="composer-box">
+                <textarea id="message-input" class="composer-textarea" placeholder="Ask a question... (Shift+Enter for new line)" rows="1"></textarea>
+                <div class="composer-toolbar">
+                    <button class="context-btn" title="Add context">＋ Add Context</button>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span id="char-count" style="font-size:10px;opacity:0.5;">0</span>
+                        <button id="send-btn" class="send-btn" title="Send (Enter)">➤</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="status-bar" class="status-bar">
+            <span id="cache-indicator"></span>
+            <span id="cost-indicator"></span>
+        </div>
     </div>
-    
-    <div id="status-bar" class="status-bar">
-        <span id="cache-indicator"></span>
-        <span id="cost-indicator"></span>
+
+    <!-- ===== SETTINGS VIEW ===== -->
+    <div id="view-settings" class="view">
+        <div class="settings-header">
+            <button class="back-btn" id="btn-back">← Back</button>
+            <h2>Settings</h2>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="tab-providers">Providers</button>
+            <button class="tab-btn" data-tab="tab-chat">Chat</button>
+            <button class="tab-btn" data-tab="tab-about">About</button>
+        </div>
+
+        <!-- PROVIDERS TAB -->
+        <div id="tab-providers" class="tab-content active">
+            <p class="section-label">API Keys</p>
+            <p style="font-size:11px;color:var(--description);margin:0 0 12px 0;">Keys are stored securely in your OS keychain via VS Code's Secret Storage. They are never logged or sent anywhere except the selected provider's API.</p>
+
+            <!-- OpenAI -->
+            <div class="provider-card" id="card-openai">
+                <div class="provider-card-header">
+                    <span class="provider-icon">🟢</span>
+                    <div class="provider-info">
+                        <div class="provider-name">OpenAI</div>
+                        <div class="provider-desc">GPT-4o, GPT-4.1, o3-mini</div>
+                    </div>
+                    <span class="provider-status not-configured" id="status-openai">Not configured</span>
+                </div>
+                <div class="provider-card-body">
+                    <div class="key-input-row">
+                        <input type="password" class="key-input" id="key-openai" placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
+                        <button class="btn-save" onclick="saveKey('openai')">Save</button>
+                        <button class="btn-delete" id="delete-openai" onclick="deleteKey('openai')" style="display:none;">Delete</button>
+                    </div>
+                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://platform.openai.com/api-keys')">platform.openai.com/api-keys</a></div>
+                </div>
+            </div>
+
+            <!-- Anthropic -->
+            <div class="provider-card" id="card-anthropic">
+                <div class="provider-card-header">
+                    <span class="provider-icon">🟠</span>
+                    <div class="provider-info">
+                        <div class="provider-name">Anthropic</div>
+                        <div class="provider-desc">Claude Sonnet 4.5, Claude Opus 4, Haiku</div>
+                    </div>
+                    <span class="provider-status not-configured" id="status-anthropic">Not configured</span>
+                </div>
+                <div class="provider-card-body">
+                    <div class="key-input-row">
+                        <input type="password" class="key-input" id="key-anthropic" placeholder="sk-ant-api03-..." autocomplete="off" spellcheck="false">
+                        <button class="btn-save" onclick="saveKey('anthropic')">Save</button>
+                        <button class="btn-delete" id="delete-anthropic" onclick="deleteKey('anthropic')" style="display:none;">Delete</button>
+                    </div>
+                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://console.anthropic.com/settings/keys')">console.anthropic.com</a></div>
+                </div>
+            </div>
+
+            <!-- Google -->
+            <div class="provider-card" id="card-google">
+                <div class="provider-card-header">
+                    <span class="provider-icon">🔵</span>
+                    <div class="provider-info">
+                        <div class="provider-name">Google AI</div>
+                        <div class="provider-desc">Gemini 2.0 Flash, Gemini 2.5 Pro</div>
+                    </div>
+                    <span class="provider-status not-configured" id="status-google">Not configured</span>
+                </div>
+                <div class="provider-card-body">
+                    <div class="key-input-row">
+                        <input type="password" class="key-input" id="key-google" placeholder="AIza..." autocomplete="off" spellcheck="false">
+                        <button class="btn-save" onclick="saveKey('google')">Save</button>
+                        <button class="btn-delete" id="delete-google" onclick="deleteKey('google')" style="display:none;">Delete</button>
+                    </div>
+                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://aistudio.google.com/app/apikey')">aistudio.google.com</a></div>
+                </div>
+            </div>
+
+            <!-- Fireworks AI -->
+            <div class="provider-card" id="card-fireworks">
+                <div class="provider-card-header">
+                    <span class="provider-icon">🔥</span>
+                    <div class="provider-info">
+                        <div class="provider-name">Fireworks AI</div>
+                        <div class="provider-desc">Llama 4 Maverick, Mixtral · AMD-powered</div>
+                    </div>
+                    <span class="provider-status not-configured" id="status-fireworks">Not configured</span>
+                </div>
+                <div class="provider-card-body">
+                    <div class="key-input-row">
+                        <input type="password" class="key-input" id="key-fireworks" placeholder="fw_..." autocomplete="off" spellcheck="false">
+                        <button class="btn-save" onclick="saveKey('fireworks')">Save</button>
+                        <button class="btn-delete" id="delete-fireworks" onclick="deleteKey('fireworks')" style="display:none;">Delete</button>
+                    </div>
+                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://fireworks.ai/settings/users/api-keys')">fireworks.ai</a> · <span style="color:var(--success-fg);">$50 hackathon credits available</span></div>
+                </div>
+            </div>
+
+            <!-- DeepSeek -->
+            <div class="provider-card" id="card-deepseek">
+                <div class="provider-card-header">
+                    <span class="provider-icon">🌊</span>
+                    <div class="provider-info">
+                        <div class="provider-name">DeepSeek</div>
+                        <div class="provider-desc">DeepSeek Chat, DeepSeek Coder</div>
+                    </div>
+                    <span class="provider-status not-configured" id="status-deepseek">Not configured</span>
+                </div>
+                <div class="provider-card-body">
+                    <div class="key-input-row">
+                        <input type="password" class="key-input" id="key-deepseek" placeholder="sk-..." autocomplete="off" spellcheck="false">
+                        <button class="btn-save" onclick="saveKey('deepseek')">Save</button>
+                        <button class="btn-delete" id="delete-deepseek" onclick="deleteKey('deepseek')" style="display:none;">Delete</button>
+                    </div>
+                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://platform.deepseek.com/api_keys')">platform.deepseek.com</a></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CHAT TAB -->
+        <div id="tab-chat" class="tab-content">
+            <p class="section-label">Chat Preferences</p>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Streaming Responses</div>
+                    <div class="setting-desc">Show AI responses token by token as they arrive</div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggle-stream" checked onchange="updateSetting('stream', this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Cache Responses</div>
+                    <div class="setting-desc">Reuse identical prompt results to save cost</div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggle-cache" checked onchange="updateSetting('cache', this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Show Token Cost</div>
+                    <div class="setting-desc">Display estimated cost per response</div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggle-cost" checked onchange="updateSetting('showCost', this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <!-- ABOUT TAB -->
+        <div id="tab-about" class="tab-content">
+            <div class="about-section">
+                <div class="logo-big">⚡</div>
+                <h3>Nexus-Code</h3>
+                <div class="version">v1.0.0 · BYOK AI Coding Assistant</div>
+            </div>
+            <div class="about-links">
+                <button class="about-link-btn" onclick="openLink('https://github.com/Femology/nexus')">
+                    <span>🐙</span> View on GitHub
+                </button>
+                <button class="about-link-btn" onclick="openLink('https://github.com/Femology/nexus/issues')">
+                    <span>🐛</span> Report an Issue
+                </button>
+            </div>
+        </div>
+
+        <div class="settings-footer">
+            <button class="btn-new-chat" id="btn-new-chat">＋ New Chat</button>
+        </div>
     </div>
 
     <script nonce="{{nonce}}" src="{{webviewJsUri}}"></script>
