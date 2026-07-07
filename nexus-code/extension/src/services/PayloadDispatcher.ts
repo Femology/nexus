@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { KeyVault } from './KeyVault';
 import { ContextAggregator } from './ContextAggregator';
-import { getSettings } from './ExtensionConfig';
+
 import { NexusPayload, NexusResponse, ToolResult } from '../types/contracts';
 import type { ToolLoopOrchestrator } from './ToolLoopOrchestrator';
 import type { DaemonLifecycle } from './DaemonLifecycle';
