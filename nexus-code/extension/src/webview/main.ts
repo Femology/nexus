@@ -4,12 +4,6 @@ const { marked } = require('marked') as any;
 // @ts-ignore
 const vscode = acquireVsCodeApi();
 
-// Expose globally for inline onclick handlers
-(window as any).vscode = vscode;
-(window as any).openLink = (url: string) => vscode.postMessage({ type: 'openLink', url });
-(window as any).saveKey = saveKey;
-(window as any).deleteKey = deleteKey;
-(window as any).updateSetting = updateSetting;
 
 // ─── Model Catalogue ────────────────────────────────────────────────────────
 const PROVIDER_MODELS: Record<string, { label: string; models: { value: string; label: string }[] }> = {
@@ -405,6 +399,39 @@ window.addEventListener('message', (event) => {
       break;
     }
   }
+});
+
+// ─── CSP-safe Event Delegation ────────────────────────────────────────────────
+// VS Code webview CSP blocks inline onclick. We use data-* attributes instead.
+document.addEventListener('click', (e) => {
+  const target = (e.target as HTMLElement).closest('[data-action]') as HTMLElement | null;
+  if (!target) return;
+
+  const action = target.dataset.action;
+  const provider = target.dataset.provider;
+  const url = target.dataset.url;
+
+  switch (action) {
+    case 'save':
+      if (provider) saveKey(provider);
+      break;
+    case 'delete':
+      if (provider) deleteKey(provider);
+      break;
+    case 'link':
+      if (url) {
+        e.preventDefault();
+        vscode.postMessage({ type: 'openLink', url });
+      }
+      break;
+  }
+});
+
+document.querySelectorAll('[data-setting]').forEach(el => {
+  (el as HTMLInputElement).addEventListener('change', () => {
+    const input = el as HTMLInputElement;
+    updateSetting(input.dataset.setting!, input.checked);
+  });
 });
 
 // ─── Signal Ready ─────────────────────────────────────────────────────────────

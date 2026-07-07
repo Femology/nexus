@@ -611,10 +611,10 @@
                 <div class="provider-card-body">
                     <div class="key-input-row">
                         <input type="password" class="key-input" id="key-openai" placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
-                        <button class="btn-save" onclick="saveKey('openai')">Save</button>
-                        <button class="btn-delete" id="delete-openai" onclick="deleteKey('openai')" style="display:none;">Delete</button>
+                        <button class="btn-save" data-action="save" data-provider="openai">Save</button>
+                        <button class="btn-delete" id="delete-openai" data-action="delete" data-provider="openai" style="display:none;">Delete</button>
                     </div>
-                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://platform.openai.com/api-keys')">platform.openai.com/api-keys</a></div>
+                    <div class="key-hint">Get your key at <a href="#" data-action="link" data-url="https://platform.openai.com/api-keys">platform.openai.com/api-keys</a></div>
                 </div>
             </div>
 
@@ -631,10 +631,10 @@
                 <div class="provider-card-body">
                     <div class="key-input-row">
                         <input type="password" class="key-input" id="key-anthropic" placeholder="sk-ant-api03-..." autocomplete="off" spellcheck="false">
-                        <button class="btn-save" onclick="saveKey('anthropic')">Save</button>
-                        <button class="btn-delete" id="delete-anthropic" onclick="deleteKey('anthropic')" style="display:none;">Delete</button>
+                        <button class="btn-save" data-action="save" data-provider="anthropic">Save</button>
+                        <button class="btn-delete" id="delete-anthropic" data-action="delete" data-provider="anthropic" style="display:none;">Delete</button>
                     </div>
-                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://console.anthropic.com/settings/keys')">console.anthropic.com</a></div>
+                    <div class="key-hint">Get your key at <a href="#" data-action="link" data-url="https://console.anthropic.com/settings/keys">console.anthropic.com</a></div>
                 </div>
             </div>
 
@@ -651,10 +651,10 @@
                 <div class="provider-card-body">
                     <div class="key-input-row">
                         <input type="password" class="key-input" id="key-google" placeholder="AIza..." autocomplete="off" spellcheck="false">
-                        <button class="btn-save" onclick="saveKey('google')">Save</button>
-                        <button class="btn-delete" id="delete-google" onclick="deleteKey('google')" style="display:none;">Delete</button>
+                        <button class="btn-save" data-action="save" data-provider="google">Save</button>
+                        <button class="btn-delete" id="delete-google" data-action="delete" data-provider="google" style="display:none;">Delete</button>
                     </div>
-                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://aistudio.google.com/app/apikey')">aistudio.google.com</a></div>
+                    <div class="key-hint">Get your key at <a href="#" data-action="link" data-url="https://aistudio.google.com/app/apikey">aistudio.google.com</a></div>
                 </div>
             </div>
 
@@ -671,10 +671,10 @@
                 <div class="provider-card-body">
                     <div class="key-input-row">
                         <input type="password" class="key-input" id="key-fireworks" placeholder="fw_..." autocomplete="off" spellcheck="false">
-                        <button class="btn-save" onclick="saveKey('fireworks')">Save</button>
-                        <button class="btn-delete" id="delete-fireworks" onclick="deleteKey('fireworks')" style="display:none;">Delete</button>
+                        <button class="btn-save" data-action="save" data-provider="fireworks">Save</button>
+                        <button class="btn-delete" id="delete-fireworks" data-action="delete" data-provider="fireworks" style="display:none;">Delete</button>
                     </div>
-                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://fireworks.ai/settings/users/api-keys')">fireworks.ai</a> · <span style="color:var(--success-fg);">$50 hackathon credits available</span></div>
+                    <div class="key-hint">Get your key at <a href="#" data-action="link" data-url="https://fireworks.ai/settings/users/api-keys">fireworks.ai</a> · <span style="color:var(--success-fg);">$50 hackathon credits available</span></div>
                 </div>
             </div>
 
@@ -691,10 +691,10 @@
                 <div class="provider-card-body">
                     <div class="key-input-row">
                         <input type="password" class="key-input" id="key-deepseek" placeholder="sk-..." autocomplete="off" spellcheck="false">
-                        <button class="btn-save" onclick="saveKey('deepseek')">Save</button>
-                        <button class="btn-delete" id="delete-deepseek" onclick="deleteKey('deepseek')" style="display:none;">Delete</button>
+                        <button class="btn-save" data-action="save" data-provider="deepseek">Save</button>
+                        <button class="btn-delete" id="delete-deepseek" data-action="delete" data-provider="deepseek" style="display:none;">Delete</button>
                     </div>
-                    <div class="key-hint">Get your key at <a href="#" onclick="openLink('https://platform.deepseek.com/api_keys')">platform.deepseek.com</a></div>
+                    <div class="key-hint">Get your key at <a href="#" data-action="link" data-url="https://platform.deepseek.com/api_keys">platform.deepseek.com</a></div>
                 </div>
             </div>
         </div>
@@ -708,7 +708,7 @@
                     <div class="setting-desc">Show AI responses token by token as they arrive</div>
                 </div>
                 <label class="toggle-switch">
-                    <input type="checkbox" id="toggle-stream" checked onchange="updateSetting('stream', this.checked)">
+                    <input type="checkbox" id="toggle-stream" checked data-setting="stream">
                     <span class="toggle-slider"></span>
                 </label>
             </div>
@@ -718,7 +718,7 @@
                     <div class="setting-desc">Reuse identical prompt results to save cost</div>
                 </div>
                 <label class="toggle-switch">
-                    <input type="checkbox" id="toggle-cache" checked onchange="updateSetting('cache', this.checked)">
+                    <input type="checkbox" id="toggle-cache" checked data-setting="cache">
                     <span class="toggle-slider"></span>
                 </label>
             </div>
@@ -728,7 +728,7 @@
                     <div class="setting-desc">Display estimated cost per response</div>
                 </div>
                 <label class="toggle-switch">
-                    <input type="checkbox" id="toggle-cost" checked onchange="updateSetting('showCost', this.checked)">
+                    <input type="checkbox" id="toggle-cost" checked data-setting="showCost">
                     <span class="toggle-slider"></span>
                 </label>
             </div>
@@ -742,10 +742,10 @@
                 <div class="version">v1.0.0 · BYOK AI Coding Assistant</div>
             </div>
             <div class="about-links">
-                <button class="about-link-btn" onclick="openLink('https://github.com/Femology/nexus')">
+                <button class="about-link-btn" data-action="link" data-url="https://github.com/Femology/nexus">
                     <span>🐙</span> View on GitHub
                 </button>
-                <button class="about-link-btn" onclick="openLink('https://github.com/Femology/nexus/issues')">
+                <button class="about-link-btn" data-action="link" data-url="https://github.com/Femology/nexus/issues">
                     <span>🐛</span> Report an Issue
                 </button>
             </div>

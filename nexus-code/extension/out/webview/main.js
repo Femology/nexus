@@ -1289,11 +1289,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 // src/webview/main.ts
 var { marked } = (init_marked_esm(), __toCommonJS(marked_esm_exports));
 var vscode = acquireVsCodeApi();
-window.vscode = vscode;
-window.openLink = (url) => vscode.postMessage({ type: "openLink", url });
-window.saveKey = saveKey;
-window.deleteKey = deleteKey;
-window.updateSetting = updateSetting;
 var PROVIDER_MODELS = {
   openai: {
     label: "OpenAI",
@@ -1635,6 +1630,33 @@ window.addEventListener("message", (event) => {
       break;
     }
   }
+});
+document.addEventListener("click", (e) => {
+  const target = e.target.closest("[data-action]");
+  if (!target) return;
+  const action = target.dataset.action;
+  const provider = target.dataset.provider;
+  const url = target.dataset.url;
+  switch (action) {
+    case "save":
+      if (provider) saveKey(provider);
+      break;
+    case "delete":
+      if (provider) deleteKey(provider);
+      break;
+    case "link":
+      if (url) {
+        e.preventDefault();
+        vscode.postMessage({ type: "openLink", url });
+      }
+      break;
+  }
+});
+document.querySelectorAll("[data-setting]").forEach((el) => {
+  el.addEventListener("change", () => {
+    const input = el;
+    updateSetting(input.dataset.setting, input.checked);
+  });
 });
 vscode.postMessage({ type: "webviewReady" });
 //# sourceMappingURL=main.js.map
