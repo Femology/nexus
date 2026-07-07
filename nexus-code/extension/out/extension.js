@@ -339,7 +339,6 @@ var PayloadDispatcher = class {
   }
   async dispatch(userMessage, modelAlias, stream, sessionId, webviewView, toolResults, attempt = 1) {
     try {
-      const settings = getSettings();
       const aliases = await this.keyVault.listAliases();
       if (aliases.length === 0) {
         throw new Error("No API keys configured. Please add an API key in Settings.");

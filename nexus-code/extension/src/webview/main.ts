@@ -1,5 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { marked } = require('marked') as typeof import('marked');
+const { marked } = require('marked') as any;
 
 // @ts-ignore
 const vscode = acquireVsCodeApi();

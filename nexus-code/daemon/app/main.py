@@ -14,6 +14,7 @@ Startup sequence:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -105,14 +106,16 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     # 4. Inject config into routes that need it
     models.set_config(config)
 
-    # 5. Initialize service singletons (implemented in later phases)
-    #    - Embedding service       → Phase 4
+    # 5. Initialize service singletons
+    #    - Embedding service (optional — requires sentence-transformers)
     from app.services.embedding import embedding_service
-    # Run in executor if necessary, but this just initializes the object. We call load_model() in background or block startup.
-    # It takes a few seconds so we'll block startup to ensure it's ready.
-    import asyncio
-    await asyncio.get_running_loop().run_in_executor(None, embedding_service.load_model)
-    _state["embedding_service"] = embedding_service
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, embedding_service.load_model)
+        _state["embedding_service"] = embedding_service
+        logger.info("Embedding service initialized")
+    except Exception as e:
+        logger.warning(f"Embedding service unavailable (heuristic-only mode): {e}")
+        _state["embedding_service"] = embedding_service  # still store it — it's a no-op stub
 
     #    - Semantic cache (L1+L2)  → Phase 4
     from app.services.cache import SemanticCache

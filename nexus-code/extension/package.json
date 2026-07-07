@@ -4,6 +4,7 @@
   "description": "High-performance BYOK AI coding assistant with token-optimized semantic caching, memory graph, and prompt compression.",
   "version": "1.0.0",
   "publisher": "nexus-code",
+  "icon": "icon.png",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
